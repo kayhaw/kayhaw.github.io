@@ -1,0 +1,1 @@
+(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[206],{3770:function(e){"use strict";e.exports=JSON.parse('{"permalink":"/kayhaw.github.io/blog","page":1,"postsPerPage":10,"totalPages":1,"totalCount":1,"previousPage":null,"nextPage":null,"blogDescription":"Blog","blogTitle":"Blog"}')}}]);
