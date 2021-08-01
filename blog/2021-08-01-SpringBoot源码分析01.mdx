@@ -1,0 +1,107 @@
+---
+title: Spring Boot源码分析(1)
+author: 何轲
+author_title: Never settle down
+author_url: https://github.com/kayhaw
+author_image_url: https://avatars.githubusercontent.com/u/16892835?v=4
+tags: [Spring Boot]
+description: doDispatch
+hide_table_of_contents: false
+---
+
+简单地分析一下HTTP请求是怎么落到DispatcherServlet的doDispatch方法头上
+<!--truncate-->
+:::info 版本说明
+基于Spring Boot 2.4.3，对应Spring MVC 5.3.4
+:::
+首先给出DispatcherServlet类的继承关系图，我们主要关心HttpServlet:arrow_right:HttpServletBean:arrow_right:FrameworkServlet:arrow_right:DispatcherServlet这一条继承关系线
+
+![DispatcherServlet.png](/img/blog/SpringBoot/DispatcherServlet.png)
+
+HttpServlet作为抽象类，声明定义了doGet、doPost、doPut等方法处理HTTP请求(以下统称为doXxx方法)，然而它的反应一律是“不好意思，我是废物，不支持处理xxx这个HTTP方法”。因此，需要其子类来重写doXxx方法来处理请求
+
+```java title="javax/servlet/http/HttpServlet.java"
+protected void doGet(HttpServletRequest req, HttpServletResponse resp)
+  throws ServletException, IOException
+{
+  String msg = lStrings.getString("http.method_get_not_supported");
+  sendMethodNotAllowed(req, resp, msg);
+}
+
+private void sendMethodNotAllowed(HttpServletRequest req, HttpServletResponse resp, String msg) throws IOException {
+    String protocol = req.getProtocol();
+    // Note: Tomcat reports "" for HTTP/0.9 although some implementations
+    //       may report HTTP/0.9
+    if (protocol.length() == 0 || protocol.endsWith("0.9") || protocol.endsWith("1.0")) {
+      resp.sendError(HttpServletResponse.SC_BAD_REQUEST, msg;
+    } else {
+      resp.sendError(HttpServletResponseSC_METHOD_NOT_ALLOWED, msg);
+    }
+}
+```
+
+:::note 挖坑
+注意到javax/servlet/http/HttpServlet.java来自tomcat-embed-core-9.0.43-sources.jar包，再往外一层思考，web容器是怎么调用这些doXxx方法的？
+:::
+
+然而作为HttpServlet的子类，HttpServletBean并没有重写doXxx方法，它是HttpServlet的简单扩展，用于处理web.xml中的serlvet配置参数
+
+接着来到HttpServletBean的子类FrameworkServlet，它终于重写了来自爷爷HttpServlet的doXxx方法，并且实现很简单，都调用processRequest方法代为处理
+
+```java title="org/springframework/web/servlet/FrameworkServlet.java" {15}
+/**
+  * Delegate GET requests to processRequest/doService.
+  * <p>Will also be invoked by HttpServlet's default implementation of {@code doHead},
+  * with a {@code NoBodyResponse} that just captures the content length.
+  * @see #doService
+  * @see #doHead
+  */
+@Override
+protected final void doGet(HttpServletRequest request, HttpServletResponse response)
+    throws ServletException, IOException {
+
+  processRequest(request, response);
+}
+```
+
+在processRequest方法中，它又通过doService方法处理请求并捕获处理时抛出的异常，然后记录结果、发布一个请求已处理事件
+
+```java title="org/springframework/web/servlet/FrameworkServlet.java" {5}
+protected final void processRequest(HttpServletRequest request, HttpServletResponse response)
+  throws ServletException, IOException {
+  ...   // 一些初始化代码
+  try {
+    doService(request, response);
+  }
+  catch (ServletException | IOException ex) {
+    failureCause = ex;
+    throw ex;
+  }
+  catch (Throwable ex) {
+    failureCause = ex;
+    throw new NestedServletException("Request processing failed", ex);
+  }
+
+  finally {
+    resetContextHolders(request, previousLocaleContext, previousAttributes);
+    if (requestAttributes != null) {
+      requestAttributes.requestCompleted();
+    }
+    logResult(request, response, failureCause, asyncManager);
+    publishRequestHandledEvent(request, response, startTime, failureCause);
+  }
+}
+```
+
+可doService还是不中用，它是一个抽象方法，因此还是需要FrameworkServlet的子类来实现doService方法。终于，轮到DispatcherServlet出场了
+
+```java
+protected abstract void doService(HttpServletRequest request, HttpServletResponse response)
+  throws Exception;
+```
+
+作为FrameworkServlet的子类，DispatcherServlet类实现了doSerive方法，并且它又将处理请求又交给自家的doDispatch方法去做。至此，请求处理到达了最核心的一站
+
+:::info 总结
+请求处理主要涉及4个类HttpServlet、HttpServletBean、FrameworkServlet和DispatcherServlet。看起来一层套一层，又是子类重写父类方法，又是子类实现父类抽象方法，但是每一层都干了一点事：比如HttpServletBean类处理web.xml中的servlet配置参数，FrameworkServlet是发布请求处理的结果事件，最后DispatcherServlet干最重要的活。一个庞大复杂的系统框架不能通过一个类把所有事都干完了，那样代码臃肿并且紧耦合。通过类继承，每一层干一点事，最后形成一个完整的系统
+:::
