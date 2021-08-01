@@ -4,12 +4,11 @@ import styles from './HomepageFeatures.module.css';
 
 const FeatureList = [
   {
-    title: 'Cooperation(合作)',
+    title: 'Less is more',
     Svg: require('../../static/img/undraw_docusaurus_mountain.svg').default,
     description: (
       <>
-        The way to achieve coherence<br/>
-        达成一致的方式
+        大道至简
       </>
     ),
   },
@@ -24,12 +23,11 @@ const FeatureList = [
     ),
   },
   {
-    title: 'Coherence(一致)',
+    title: 'Easy to use, hard to err',
     Svg: require('../../static/img/undraw_docusaurus_react.svg').default,
     description: (
       <>
-        The target of cooperation<br/>
-        团队合作的目标
+        易于使用，难于犯错
       </>
     ),
   },

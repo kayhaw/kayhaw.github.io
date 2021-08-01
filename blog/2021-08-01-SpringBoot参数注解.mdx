@@ -1,0 +1,181 @@
+---
+title: Spring Boot学习(1)
+author: 何轲
+author_title: Never settle down
+author_url: https://github.com/kayhaw
+author_image_url: https://avatars.githubusercontent.com/u/16892835?v=4
+tags: [Spring Boot]
+description: Spring Boot常用参数注解使用
+hide_table_of_contents: false
+---
+
+上手Spring Boot很简单，写好类打上@Controller、@Service注解，前者再用@Autowire把后者导入，然后只在Service类中写业务逻辑代码即可。为了方便获取前端参数并简化代码，我们需要在Controller方法形参列表中加上参数注解，让Spring Boot自动把前端参数封装成对应的对象。那么，Spring Boot提供的常用参数注解有哪些呢？
+
+<!--truncate-->
+## @PathVariable：获取路径变量
+
+```java {5}
+@GetMapping("/car/{id}/owner/{username}")
+public Map<String, Object> getCar(
+  @PathVariable("id") Integer id,
+  @PathVariable("username") String name,
+  @PathVariable Map<String, String> kv) {
+  ...
+}
+```
+
+本地测试时，浏览器输入地址为`localhost:8080/car/123/owner/kayhaw`，此时在getCar方法中得到参数id值为123，name值为kayhaw。其中，路径变量的名称显示指定为`id`和`username`，**若不显示指定则路径变量名等于方法形参名**，在开发中需要注意@GetMapping注解的路径变量占位符名要和路径变量名保持一致。除此之外，在@PathVariable注解类的源码注释中提到
+
+> If the method parameter is java.util.Map Map&lt;String, String&gt; then the map is populated with all path variable names and values.
+
+因此可以使用一个Map对象来存储所有路径变量名及其值，此时map对象的key值是@GetMapping中路径变量占位符的名称
+
+## @RequestHeader：获取请求头。
+
+```java {4-5}
+@GetMapping("/car/{id}/owner/{username}")
+public Map<String, Object> getCar(
+  @RequestHeader("User-Agent") String Pragma,
+  @RequestHeader Map<String, String> header,
+  @RequestHeader HttpHeaders headers) {
+  ...
+}
+```
+
+使用方法和@PathVariable类似，无请求头参数名默认为方法形参名。同时，在@RequestHeader源码中也提到
+
+> If the method parameter is java.util.Map Map&lt;String, String&gt;, org.springframework.util.MultiValueMap MultiValueMap&lt;String, String&gt;, or org.springframework.http.HttpHeaders HttpHeaders then the map is populated with all header names and values.
+
+因此可以将方法形参类型设置为Map或HttpHeaders对象来一次性获取请求头所有信息
+
+## @RequestParam：获取请求参数
+
+```java {4}
+@GetMapping("/car/{id}/owner/{username}")
+public Map<String, Object> getCar(
+  @RequestParam("age") Integer age,
+  @RequestParam("inters") List<String> inters,
+  @RequestParam MultiValueMap<String, Object> params) {
+  ...
+}
+```
+
+本地测试在浏览器输入地址为`localhost:8080/car/123/owner/kayhaw?age=17&inters=123,3121`，此时获取age值为17，inters列表为[123, 3121]。同样地，在@RequestParam源码注释中提到
+
+> If the method parameter is `java.util.Map Map<String, String>` or `org.springframework.util.MultiValueMap MultiValueMap<String, String>` and a parameter name is not specified, then the map parameter is populated with all request parameter names and values.
+
+注意这里出现了Spring自定义容器类MultiValueMap，它的value值是ArrayList对象。**注意匹配请求参数名是区分大小写的**
+
+:::caution 警告
+当我把`RequestParam("age")`改成`@RequestParam("AGE")`时，在浏览器输入`localhost:8080/car/123/owner/kayhaw?AGE=17&inters=123,3121`，跳转时会自动把大写的AGE改成小写的age然后发送请求，导致报错。
+:::
+
+:::note 提示
+Spring Boot接受值为数组的请求参数，请求参数的写法是`name=kay&name=haw`或者`name=kay,haw`
+:::
+
+## @CookieValue：获取Cookie
+
+```java {4}
+@GetMapping("/car/{id}/owner/{username}")
+public Map<String, Object> getCar(
+  @CookieValue("id") String id,
+  @CookieValue("id") Cookie _id) {
+  ...
+}
+```
+
+CookieValue注解修饰的参数类型可以是Cookie类或者Cookie值对应类型
+> The method parameter may be declared as type `javax.servlet.http.Cookie` or as cookie value type (String, int, etc.).
+
+## @RequestBody：获取请求体
+
+获取请求体内容，根据请求的内容类型由HttpMessageConverter处理转换，该注解只有一个required参数，默认为true表示请求体不能为空，否则抛出异常
+
+## @RequestAttribute：获取Request属性
+
+```java {15}
+@Controller
+public class RequestController {
+
+    // 这里不要加@ResponseBody注解
+    @GetMapping("/goto")
+    public String goToPage(HttpServletRequest request) {
+        request.setAttribute("msg", "success");
+        request.setAttribute("code", 200);
+        return "forward:success";
+    }
+
+    @ResponseBody
+    @GetMapping("/success")
+    public Map success(@RequestAttribute("msg") String msg,
+                       @RequestAttribute("code") Integer code,
+                       HttpServletRequest request){
+
+        Object msg1 = request.getAttribute("msg");
+        Map<String, Object> map = new HashMap<>();
+        map.put("reqBody_msg", msg1);
+        map.put("reqAttri_msg", msg);
+        map.put("code", code);
+
+        return map;
+    }
+}
+```
+
+使用方法和@RequestParam类似，当不指定属性名时默认为形参名。但是，@RequestAttribute不支持在形参类型为Map自动转化的功能，因此`@RequestAttribute Map<String, String> attMap`会报错找不到attMap属性。要想获取所有请求属性封装对象，声明一个`HttpServletRequest`形参，然后调用其getAttribute方法
+
+:::note 请求参数(Parameter)和请求属性(Attribute)的异同
+1. 前者是从web用户端到web服务端传递的数据，后者是web服务端内部传递的数据，在具有转发关系之间的Web组件共享
+2. 请求参数只有getter方法没有setter方法且返回值为String类型，请求属性getter、setter方法都有，参数类型为Object
+3. getParameter用于客户端重定向时接收数据，getAttribute用户服务器端重定向时，即在servlet中使用了forward函数，getAttribute只能获取用setAttribute设置的值
+:::
+
+## @MatrixVariable：获取矩阵变量
+
+```java
+@ResponseBody
+@GetMapping("/car/{path}")
+public Map carsSell(
+  @MatrixVariable(value = "low", pathVar = "path") Integer low,
+  @MatrixVariable("brand") List<String> brand,
+  @MatrixVariable Map<String, String> map,
+  @PathVariable("path") String path) {
+  System.out.printf("%d, %s, %s\n", low, brand, path);
+  System.out.println(map);
+  return map;
+}
+```
+
+本地测试浏览器地址栏输入`http://localhost:8080/car/abc;low=12;brand=aodi,byd,yadi`，路径变量和矩阵变量之间使用分号隔开，值为列表使用逗号隔开。**矩阵变量必须和路径变量绑定**，当多个路径变量后的矩阵变量重名时，可以通过pathVar参数指定路径变量来获取对应的矩阵变量。**注意，当矩阵变量绑定的参数类型为Map或MultiValueMap时，如果没有指定要获取的矩阵变量名，此时map包含所有矩阵变量信息；如果指定了矩阵变量名，会尝试把后面的值转为Map类型**
+
+:::caution 注意
+SpringBoot默认禁用矩阵变量功能，可以通过如下两种方式开启，两者都是将UrlPathHelper组件的removeSemicolonContent属性设置为false(默认为true表示移除路径变量分号后的内容)
+```java title="方式一：实现WebMvcConfigurer并重写方法" {6}
+@Configuration(proxyBeanMethods = false)
+public class WebConfig implements WebMvcConfigurer {
+    @Override
+    public void configurePathMatch(PathMatchConfigurer configurer) {
+        UrlPathHelper urlPathHelper = new UrlPathHelper();
+        urlPathHelper.setRemoveSemicolonContent(false);
+        configurer.setUrlPathHelper(urlPathHelper);
+    }
+}
+```
+```java title="方式二：自定义一个WebMvcConfigurer组件" {9}
+@Configuration(proxyBeanMethods = false)
+public class WebConfig {
+  @Bean
+  public WebMvcConfigurer webMvcConfigurer() {
+    return new WebMvcConfigurer() {
+      @Override
+      public void configurePathMatch(PathMatchConfigurer configurer) {
+        UrlPathHelper urlPathHelper = new UrlPathHelper();
+        urlPathHelper.setRemoveSemicolonContent(false);
+        configurer.setUrlPathHelper(urlPathHelper);
+      }
+    };
+  }
+}
+```
+:::
