@@ -4,9 +4,23 @@
         <title>Kay Haw's Blog Blog</title>
         <link>https://kayhaw.github.io/blog</link>
         <description>Kay Haw's Blog Blog</description>
-        <lastBuildDate>Tue, 22 Jun 2021 00:00:00 GMT</lastBuildDate>
+        <lastBuildDate>Sun, 01 Aug 2021 00:00:00 GMT</lastBuildDate>
         <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
         <generator>https://github.com/jpmonette/feed</generator>
+        <item>
+            <title><![CDATA[Spring Boot学习(1)]]></title>
+            <link>https://kayhaw.github.io/blog/2021/08/01/SpringBoot参数注解</link>
+            <guid>Spring Boot学习(1)</guid>
+            <pubDate>Sun, 01 Aug 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[Spring Boot常用参数注解使用]]></description>
+        </item>
+        <item>
+            <title><![CDATA[Spring Boot源码分析(1)]]></title>
+            <link>https://kayhaw.github.io/blog/2021/08/01/SpringBoot源码分析01</link>
+            <guid>Spring Boot源码分析(1)</guid>
+            <pubDate>Sun, 01 Aug 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[doDispatch]]></description>
+        </item>
         <item>
             <title><![CDATA[deploy]]></title>
             <link>https://kayhaw.github.io/blog/2021/06/22/deploy</link>

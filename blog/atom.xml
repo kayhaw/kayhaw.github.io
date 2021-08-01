@@ -2,11 +2,25 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://kayhaw.github.io/blog</id>
     <title>Kay Haw's Blog Blog</title>
-    <updated>2021-06-22T00:00:00.000Z</updated>
+    <updated>2021-08-01T00:00:00.000Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://kayhaw.github.io/blog"/>
     <subtitle>Kay Haw's Blog Blog</subtitle>
     <icon>https://kayhaw.github.io/img/favicon.ico</icon>
+    <entry>
+        <title type="html"><![CDATA[Spring Boot学习(1)]]></title>
+        <id>Spring Boot学习(1)</id>
+        <link href="https://kayhaw.github.io/blog/2021/08/01/SpringBoot参数注解"/>
+        <updated>2021-08-01T00:00:00.000Z</updated>
+        <summary type="html"><![CDATA[Spring Boot常用参数注解使用]]></summary>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[Spring Boot源码分析(1)]]></title>
+        <id>Spring Boot源码分析(1)</id>
+        <link href="https://kayhaw.github.io/blog/2021/08/01/SpringBoot源码分析01"/>
+        <updated>2021-08-01T00:00:00.000Z</updated>
+        <summary type="html"><![CDATA[doDispatch]]></summary>
+    </entry>
     <entry>
         <title type="html"><![CDATA[deploy]]></title>
         <id>deploy</id>
