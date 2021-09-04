@@ -1,0 +1,247 @@
+---
+title: 二叉树遍历
+author: 何轲
+author_title: Never settle down
+author_url: https://github.com/kayhaw
+author_image_url: https://avatars.githubusercontent.com/u/16892835?v=4
+tags: [BiTree, Traversal]
+description: 二叉树前、中、后、层序遍历
+hide_table_of_contents: false
+---
+
+二叉树的4种遍历方式，将遍历结果以列表形式返回
+<!--truncate-->
+
+## 前序遍历
+按照访问根节点-左子树-右子树的顺序遍历二叉树
+### 递归方式
+递归方法流程
+1. 先判断root是否为null，是则直接返回
+2. root添加到结果列表res
+3. 递归调用preorder方法，将**左**节点、res作为参数
+4. 递归调用preorder方法，将**右**节点、res作为参数
+注意递归方法需要把结果列表res作为参数带上，并且res必须作为引用传入，而不是复制值
+```java
+class Solution {
+    public List<Integer> preorderTraversal(TreeNode root) {
+        List<Integer> res = new ArrayList<Integer>();
+        preorder(root, res);
+        return res;
+    }
+
+    public void preorder(TreeNode root, List<Integer> res) {
+        if (root == null) {
+            return;
+        }
+        res.add(root.val);
+        preorder(root.left, res);
+        preorder(root.right, res);
+    }
+}
+```
+### 迭代方式
+本质上自己使用栈重新走一遍递归方法
+1. 当栈不为空**或者**当前达到节点node不为null时
+2. 当node不为空时，一直往左子节点走到底，每走一步就把node保存到res列表，并且压入栈
+3. node为空表示已经走到了某棵子树的最左节点，将该子树的root节点从栈中弹出，然后访问该子树的右子树，回到步骤1
+```java
+class Solution {
+    public List<Integer> preorderTraversal(TreeNode root) {
+        List<Integer> res = new ArrayList<Integer>();
+        if (root == null) {
+            return res;
+        }
+
+        Deque<TreeNode> stack = new LinkedList<TreeNode>();
+        TreeNode node = root;
+        while (!stack.isEmpty() || node != null) {
+            while (node != null) {
+                res.add(node.val);
+                stack.push(node);
+                node = node.left;
+            }
+            node = stack.pop();
+            node = node.right;
+        }
+        return res;
+    }
+}
+```
+## 中序遍历
+按照访问左子树-根节点-右子树的顺序遍历二叉树
+### 递归方式
+根据访问顺序逻辑修改代码，把加入res列表的那一行代码挪到递归访问左、右子树的中间即可
+```java {12,14}
+class Solution {
+    public List<Integer> inorderTraversal(TreeNode root) {
+        List<Integer> res = new ArrayList<Integer>();
+        preorder(root, res);
+        return res;
+    }
+
+    public void preorder(TreeNode root, List<Integer> res) {
+        if (root == null) {
+            return;
+        }
+        // res.add(root.val);     这是前序遍历
+        preorder(root.left, res);
+        res.add(root.val);        // 这是中序遍历
+        preorder(root.right, res);
+    }
+}
+```
+### 迭代方式
+在前序遍历迭代方式的基础上修改也很简单，当走完某棵子树的左子树后，从栈中弹出的root节点就是要访问的节点，将其加入res列表即可
+```java {12,17}
+class Solution {
+    public List<Integer> inorderTraversal(TreeNode root) {
+        List<Integer> res = new ArrayList<Integer>();
+        if (root == null) {
+            return res;
+        }
+
+        Deque<TreeNode> stack = new LinkedList<TreeNode>();
+        TreeNode node = root;
+        while (!stack.isEmpty() || node != null) {
+            while (node != null) {
+                // res.add(node.val);   // 这是前序遍历的位置
+                stack.push(node);
+                node = node.left;
+            }
+            node = stack.pop();
+            res.add(node.val);    // 这是中序遍历的位置
+            node = node.right;
+        }
+        return res;
+    }
+}
+```
+## 后序遍历
+按照访问左子树-右子树-根节点的顺序遍历二叉树
+### 递归方式
+根据访问顺序逻辑修改代码，把加入res列表的那一行代码挪到递归访问左、右子树的中间即可
+```java {12,14,16}
+class Solution {
+    public List<Integer> inorderTraversal(TreeNode root) {
+        List<Integer> res = new ArrayList<Integer>();
+        preorder(root, res);
+        return res;
+    }
+
+    public void preorder(TreeNode root, List<Integer> res) {
+        if (root == null) {
+            return;
+        }
+        // res.add(root.val);     这是前序遍历
+        preorder(root.left, res);
+        // res.add(root.val);     这是中序遍历
+        preorder(root.right, res);
+        res.add(root.val);        // 这是后序遍历
+    }
+}
+```
+### 迭代方式
+后序遍历的迭代方式可不是像之前那样把访问代码挪到最后。相比与前序、中序遍历，后序遍历要求访问完左右子树后访问root节点，在迭代方式中，栈弹出root节点后，并不能确定这个root节点的右子树是不是被访问完了，此时可以细分为3种情况：
+1. root.right为空，直接将root节点添加到res列表
+2. root.right不为空，但是我们已经从右子树访问回来了，此时也将root节点添加到res列表
+3. root.right不为空，并且还没有访问过右子树，此时root入栈然后访问右子树
+为了判断是否已经从右子树访问回来，使用prev表示上次一遍历完子树的root节点。
+```java {16-23}
+class Solution {
+    public List<Integer> postorderTraversal(TreeNode root) {
+        List<Integer> res = new ArrayList<Integer>();
+        if (root == null) {
+            return res;
+        }
+
+        Deque<TreeNode> stack = new LinkedList<TreeNode>();
+        TreeNode prev = null;
+        while (root != null || !stack.isEmpty()) {
+            while (root != null) {
+                stack.push(root);
+                root = root.left;
+            }
+            root = stack.pop();       // 左子树遍历完，弹出根节点
+            if (root.right == null || root.right == prev) {
+                res.add(root.val);
+                prev = root;
+                root = null;          // root左右子树遍历完，置为null后root会成为其上一层根节点
+            } else {                  // 遍历右子树，注意root节点重新入栈
+                stack.push(root);
+                root = root.right;
+            }
+        }
+        return res;
+    }
+}
+```
+
+:::info
+后序遍历还有一种借鉴两次翻转思想的方式，以前序遍历迭代为基础进行镜像翻转，即访问顺序为根节点-右子树-左子树，将返回结果再一次翻转即为后序遍历的访问结果，虽然结果一样但是本质上还是一种前序遍历
+:::
+
+## 层序遍历
+层序遍历按照每一层从左到右，从上到下遍历并返回一个二维数组，本质思想是使用队列进行广度优先搜索，每次从队列取出一个节点后，将其非空左右子节点加入队列。为了区分层与层，一开始添加一个额外null节点作为标识
+```java {21-23}
+public List<List<Integer>> levelOrder(TreeNode root) {
+    List<List<Integer>> res = new ArrayList();
+
+    if(root == null)
+        return res;
+
+    Queue<TreeNode> queue = new LinkedList<>();
+    queue.offer(root);
+    queue.offer(null);
+
+    while(!queue.isEmpty()) {
+        List<Integer> level = new ArrayList<>();
+        while(queue.peek() != null) {
+            TreeNode node = queue.poll();
+            level.add(node.val);
+            if(node.left != null)
+                queue.offer(node.left);
+            if(node.right != null)
+                queue.offer(node.right);
+        }
+        queue.poll();             // 删除null标志然后队尾重新加上
+        if(!queue.isEmpty())      // 一开始直接重新插入null导致死循环
+            queue.offer(null);
+        res.add(level);
+    }
+    return res;
+}
+```
+一种更简洁的方式是遍历之前使用当前队列长度，**注意不能使用isEmpty来判断是否层序遍历完，因为遍历过程中会添加下一层节点**
+```java
+public List<List<Integer>> levelOrder(TreeNode root) {
+    List<List<Integer>> res = new ArrayList();
+
+    if(root == null)
+        return res;
+
+    Queue<TreeNode> queue = new LinkedList<>();
+    queue.offer(root);
+
+    while(!queue.isEmpty()) {
+        int levelSize = queue.size();
+        List<Integer> level = new ArrayList<>(levelSize);
+        for (int i = 0; i < levelSize; i++) {
+            TreeNode node = queue.poll();
+            level.add(node.val);
+            if(node.left != null)
+                queue.offer(node.left);
+            if(node.right != null)
+                queue.offer(node.right);
+        }
+        res.add(level);
+    }
+    return res;
+}
+```
+:::info 总结
+二叉树前、中、后序递归遍历很简单，主要是要记住迭代遍历思路。前、中序迭代遍历只是访问代码挪了下位置，后序迭代遍历会更复杂些，理清思路后要把这些代码模板都刻在骨子里，以下是力扣题目地址，要求像背书一样马上写出来:punch:
+- [前序遍历](https://leetcode-cn.com/problems/binary-tree-preorder-traversal/)
+- [中序遍历](https://leetcode-cn.com/problems/binary-tree-inorder-traversal/)
+- [后序遍历](https://leetcode-cn.com/problems/binary-tree-postorder-traversal/)
+- [层序遍历](https://leetcode-cn.com/problems/binary-tree-level-order-traversal/)
+:::
