@@ -1,1 +1,0 @@
-(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[713],{7485:function(o){"use strict";o.exports=JSON.parse('{"spring-boot":{"allTagsPath":"/blog/tags","slug":"spring-boot","name":"spring boot","count":2,"permalink":"/blog/tags/spring-boot"}}')}}]);
