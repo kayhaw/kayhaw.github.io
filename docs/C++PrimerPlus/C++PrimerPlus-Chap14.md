@@ -4,7 +4,9 @@ title: C++中的代码重用
 permalink: /C++-Primer-Plus-Note/chap14
 sidebar:
     nav: cpp-reading-notes
-tags: C++ ReadingNotes
+tags:
+  - C++
+  - ReadingNotes
 ---
 :::info
 《C++ Primer Plus》中文版第十四章读书笔记

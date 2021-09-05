@@ -4,7 +4,10 @@ title: 构造函数,析构函数和赋值操作符
 permalink: /Effective-C++-Note/chap2
 sidebar:
     nav: effective-c++-reading-notes
-tags: Effective-C++ ReadingNotes C++
+tags:
+  - Effective-C++
+  - ReadingNotes
+  - C++
 ---
 :::info
 《Effective C++》英文第三版读书笔记第二章

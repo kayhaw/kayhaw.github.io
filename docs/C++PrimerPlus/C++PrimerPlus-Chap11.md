@@ -4,7 +4,9 @@ title: 使用类
 permalink: /C++-Primer-Plus-Note/chap11
 sidebar:
     nav: cpp-reading-notes
-tags: C++ ReadingNotes
+tags:
+  - C++
+  - ReadingNotes
 ---
 :::info
 《C++ Primer Plus》中文版第十一章读书笔记

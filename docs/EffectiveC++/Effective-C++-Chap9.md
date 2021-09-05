@@ -4,7 +4,10 @@ title: 杂录
 permalink: /Effective-C++-Note/chap9
 sidebar:
     nav: effective-c++-reading-notes
-tags: Effective-C++ ReadingNotes C++
+tags:
+  - Effective-C++
+  - ReadingNotes
+  - C++
 ---
 
 :::info

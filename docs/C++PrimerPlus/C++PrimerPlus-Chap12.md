@@ -4,7 +4,9 @@ title: 类和动态内存分配
 permalink: /C++-Primer-Plus-Note/chap12
 sidebar:
     nav: cpp-reading-notes
-tags: C++ ReadingNotes
+tags:
+  - C++
+  - ReadingNotes
 ---
 :::info
 《C++ Primer Plus》中文版第十二章读书笔记

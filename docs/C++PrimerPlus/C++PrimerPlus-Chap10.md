@@ -4,7 +4,9 @@ title: 对象和类
 permalink: /C++-Primer-Plus-Note/chap10
 sidebar:
     nav: cpp-reading-notes
-tags: C++ ReadingNotes
+tags:
+  - C++
+  - ReadingNotes
 ---
 :::info
 《C++ Primer Plus》中文版第十章读书笔记

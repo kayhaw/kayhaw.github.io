@@ -4,7 +4,10 @@ title: 代码实现
 permalink: /Effective-C++-Note/chap5
 sidebar:
     nav: effective-c++-reading-notes
-tags: Effective-C++ ReadingNotes C++
+tags:
+  - Effective-C++
+  - ReadingNotes
+  - C++
 ---
 :::info
 《Effective C++》英文第三版读书笔记第五章

@@ -4,7 +4,9 @@ title: 友元、异常和其他
 permalink: /C++-Primer-Plus-Note/chap15
 sidebar:
     nav: cpp-reading-notes
-tags: C++ ReadingNotes
+tags:
+  - C++
+  - ReadingNotes
 ---
 :::info
 《C++ Primer Plus》中文版第十五章读书笔记

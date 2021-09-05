@@ -4,7 +4,9 @@ title: 循环和关系表达式
 permalink: /C++-Primer-Plus-Note/chap5
 sidebar:
     nav: cpp-reading-notes
-tags: C++ ReadingNotes
+tags:
+  - C++
+  - ReadingNotes
 ---
 import useBaseUrl from '@docusaurus/useBaseUrl';
 

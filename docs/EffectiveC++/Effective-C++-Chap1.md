@@ -4,7 +4,10 @@ title: 养成C++好习惯
 permalink: /Effective-C++-Note/chap1
 sidebar:
     nav: effective-c++-reading-notes
-tags: Effective-C++ ReadingNotes C++
+tags:
+  - Effective-C++
+  - ReadingNotes
+  - C++
 ---
 :::info
 《Effective C++》英文第三版读书笔记第一章

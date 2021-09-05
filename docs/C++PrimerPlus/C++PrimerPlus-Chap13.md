@@ -4,7 +4,9 @@ title: 类继承
 permalink: /C++-Primer-Plus-Note/chap13
 sidebar:
     nav: cpp-reading-notes
-tags: C++ ReadingNotes
+tags:
+  - C++
+  - ReadingNotes
 ---
 :::info
 《C++ Primer Plus》中文版第十三章读书笔记

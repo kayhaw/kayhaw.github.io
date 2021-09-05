@@ -4,7 +4,9 @@ title: 函数探幽
 permalink: /C++-Primer-Plus-Note/chap8
 sidebar:
     nav: cpp-reading-notes
-tags: C++ ReadingNotes
+tags:
+  - C++
+  - ReadingNotes
 ---
 :::info
 《C++ Primer Plus》中文版第八章读书笔记

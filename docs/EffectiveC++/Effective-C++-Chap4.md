@@ -4,7 +4,10 @@ title: 设计和声明
 permalink: /Effective-C++-Note/chap4
 sidebar:
     nav: effective-c++-reading-notes
-tags: Effective-C++ ReadingNotes C++
+tags:
+  - Effective-C++
+  - ReadingNotes
+  - C++
 ---
 :::info
 《Effective C++》英文第三版读书笔记第四章

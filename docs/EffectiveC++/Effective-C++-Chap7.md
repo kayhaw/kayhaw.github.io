@@ -4,7 +4,10 @@ title: 模板和泛型编程
 permalink: /Effective-C++-Note/chap7
 sidebar:
     nav: effective-c++-reading-notes
-tags: Effective-C++ ReadingNotes C++
+tags:
+  - Effective-C++
+  - ReadingNotes
+  - C++
 ---
 
 :::info

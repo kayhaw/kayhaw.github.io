@@ -4,7 +4,10 @@ title: 自定义new和delete
 permalink: /Effective-C++-Note/chap8
 sidebar:
     nav: effective-c++-reading-notes
-tags: Effective-C++ ReadingNotes C++
+tags:
+  - Effective-C++
+  - ReadingNotes
+  - C++
 ---
 
 :::info

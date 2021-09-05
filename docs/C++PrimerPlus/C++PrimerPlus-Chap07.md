@@ -4,7 +4,9 @@ title: 函数
 permalink: /C++-Primer-Plus-Note/chap7
 sidebar:
     nav: cpp-reading-notes
-tags: C++ ReadingNotes
+tags:
+  - C++
+  - ReadingNotes
 ---
 :::info
 《C++ Primer Plus》中文版第七章读书笔记

@@ -1,7 +1,9 @@
 ---
 title: 复杂类型
 permalink: /C++-Primer-Plus-Note/chap4
-tags: C++ ReadingNotes
+tags:
+  - C++
+  - ReadingNotes
 ---
 :::info
 《C++ Primer Plus》中文版第四章读书笔记

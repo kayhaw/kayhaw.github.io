@@ -4,7 +4,9 @@ title: 内存模型和名称空间
 permalink: /C++-Primer-Plus-Note/chap9
 sidebar:
     nav: cpp-reading-notes
-tags: C++ ReadingNotes
+tags:
+  - C++
+  - ReadingNotes
 ---
 :::info
 《C++ Primer Plus》中文版第九章读书笔记

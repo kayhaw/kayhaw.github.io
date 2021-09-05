@@ -4,7 +4,10 @@ title: 继承和面向对象设计
 permalink: /Effective-C++-Note/chap6
 sidebar:
     nav: effective-c++-reading-notes
-tags: Effective-C++ ReadingNotes C++
+tags:
+  - Effective-C++
+  - ReadingNotes
+  - C++
 ---
 :::info
 《Effective C++》英文第三版读书笔记第六章
