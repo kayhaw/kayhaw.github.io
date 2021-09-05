@@ -13,6 +13,10 @@
         <link href="https://kayhaw.github.io/blog/2021/09/04/BiTreeTraversal"/>
         <updated>2021-09-04T00:00:00.000Z</updated>
         <summary type="html"><![CDATA[二叉树前、中、后、层序遍历]]></summary>
+        <author>
+            <name>何轲</name>
+            <uri>https://github.com/kayhaw</uri>
+        </author>
     </entry>
     <entry>
         <title type="html"><![CDATA[Spring Boot学习(1)]]></title>
@@ -20,6 +24,10 @@
         <link href="https://kayhaw.github.io/blog/2021/08/01/SpringBoot参数注解"/>
         <updated>2021-08-01T00:00:00.000Z</updated>
         <summary type="html"><![CDATA[Spring Boot常用参数注解使用]]></summary>
+        <author>
+            <name>何轲</name>
+            <uri>https://github.com/kayhaw</uri>
+        </author>
     </entry>
     <entry>
         <title type="html"><![CDATA[Spring Boot源码分析(1)]]></title>
@@ -27,6 +35,10 @@
         <link href="https://kayhaw.github.io/blog/2021/08/01/SpringBoot源码分析01"/>
         <updated>2021-08-01T00:00:00.000Z</updated>
         <summary type="html"><![CDATA[doDispatch]]></summary>
+        <author>
+            <name>何轲</name>
+            <uri>https://github.com/kayhaw</uri>
+        </author>
     </entry>
     <entry>
         <title type="html"><![CDATA[deploy]]></title>

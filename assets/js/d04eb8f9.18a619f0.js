@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[3521],{8808:function(a){a.exports=JSON.parse('{"allTagsPath":"/blog/tags","slug":"/blog/tags/bi-tree","name":"BiTree","count":1,"permalink":"/blog/tags/bi-tree"}')}}]);

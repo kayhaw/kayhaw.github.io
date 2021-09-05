@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[4121],{8070:function(e){e.exports=JSON.parse('[{"name":"C++","permalink":"/docs/tags/c","count":21},{"name":"ReadingNotes","permalink":"/docs/tags/reading-notes","count":21},{"name":"Effective-C++","permalink":"/docs/tags/effective-c","count":9}]')}}]);
