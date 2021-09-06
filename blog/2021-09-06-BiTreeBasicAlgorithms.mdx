@@ -1,0 +1,172 @@
+---
+title: 二叉树基本算法
+author: 何轲
+author_title: Never settle down
+author_url: https://github.com/kayhaw
+author_image_url: https://avatars.githubusercontent.com/u/16892835?v=4
+tags: [BiTree]
+description: 二叉树基本算法
+hide_table_of_contents: false
+---
+
+学完了二叉树基础的遍历操作，再记录下其他二叉树相关的基本算法
+<!--truncate-->
+
+## 二叉树的最大深度
+[二叉树的最大深度](https://leetcode-cn.com/problems/maximum-depth-of-binary-tree/)是指从根节点到**最远叶子节点**上的节点数
+
+### 递归方式
+基于这么一个基本思路：一棵二叉树最大深度等于它左右子树最大深度的较大值加1。然后要确认递归终止条件，就是最简单空树，此时返回深度为0，代码如下：
+```java {3}
+public int maxDepth(TreeNode root) {
+    if(root == null) {
+        return 0;     // 注意这里不要写成1
+    }
+    return Math.max(maxDepth(root.left)+1, maxDepth(root.right)+1);
+}
+```
+
+### 非递归方式
+这里就要用到之前总结的二叉树层序遍历思路，因为二叉树的最大深度就是其层序遍历时的最大层数，代码如下：
+```java {3}
+public int maxDepth(TreeNode root) {
+
+    if(root == null)      // 永远不要忘记处理空树情况
+        return 0;
+
+    Queue<TreeNode> queue = new LinkedList<>();
+    queue.offer(root);
+
+    TreeNode tmp = null;
+    int maxDepth = 0;
+
+    while(!queue.isEmpty()) {
+        int len = queue.size();
+        maxDepth++;
+        for (int i = 0; i < len; i++) {
+            tmp = queue.poll();
+            if(tmp.left != null)
+                queue.offer(tmp.left);
+            if(tmp.right != null)
+                queue.offer(tmp.right);
+        }
+    }
+    return maxDepth;
+}
+```
+
+## 对称二叉树
+当一个二叉树是镜像对称的称之为对称二叉树，比如
+```
+    1
+   / \
+  2   2
+ / \ / \
+3  4 4  3
+```
+
+### 递归方式
+对于一颗二叉树的左右子树，当左右子树根节点的值相同，并且左右子树镜像对称时，该树是对称的。左右子树镜像对称的条件：
+- 左子树的右子树与右子树的左子树对称
+- 右子树的左子树与左子树的右子树对称
+
+```java
+public boolean isSymmetric(TreeNode root) {
+    return check(root, root);
+}
+
+public boolean check(TreeNode p, TreeNode q) {
+    if (p == null && q == null) {
+        return true;
+    }
+    if (p == null || q == null) {
+        return false;
+    }
+    return p.val == q.val && check(p.left, q.right) && check(p.right, q.left);
+}
+```
+
+### 迭代方式
+不难发现对称二叉树层序遍历时的结果是回文的。为了简化判断，在层序遍历给队列添加左右子节点时，按照left.left、right.right、left.right、right.left的顺序插入，这样两两一对的节点值都是相同的，代码如下：
+
+```java
+public boolean check(TreeNode p, TreeNode q) {
+    Queue<TreeNode> queue = new LinkedList<>();
+    queue.offer(p);
+    queue.offer(q);
+
+    while(!queue.isEmpty()) {
+        TreeNode v = queue.poll();
+        TreeNode u = queue.poll();
+
+        if(v == null && u == null) {
+            // return true;         一开始直接return，错误！
+            continue;
+        }
+        if(v == null || u == null || v.val != u.val)
+            return false;
+        queue.offer(v.left);
+        queue.offer(u.right);
+        queue.offer(v.right);
+        queue.offer(u.left);
+    }
+    return true;
+}
+
+public boolean isSymmetric(TreeNode root) {
+    return check(root, root);
+}
+```
+
+:::tip 提示
+还可以通过中序遍历结果是否回文来判断
+:::
+
+## 翻转二叉树
+简单来说就是把二叉树的左右子树都对调一下
+
+### 递归方式
+首先递归终止条件是传入根节点参数为null，此时返回null，其他情况就对左右子树递归调用方法进行翻转，最后把左右子树交换一下
+```java
+public TreeNode invertTree(TreeNode root) {
+    if(root == null)
+        return null;
+    TreeNode left = invertTree(root.left);
+    TreeNode right = invertTree(root.right);
+    root.left = right;
+    root.right = left;
+    return root;
+}
+```
+
+### 迭代方式
+还是使用层序遍历，每次取出一个节点交换其左右子节点。这里不需要统计层数，所以没有用for循环，代码如下：
+```java
+public TreeNode invertTree(TreeNode root) {
+    if(root == null)
+        return null;
+
+    Queue<TreeNode> queue = new LinkedList<>();
+    queue.offer(root);
+    TreeNode node, tmp;
+
+    while(!queue.isEmpty()) {
+        node = queue.poll();
+        tmp = node.left;
+        node.left = node.right;
+        node.right = tmp;
+        // 确保队列中的节点都是非null
+        if(node.left != null)
+            queue.offer(node.left);
+        if(node.right != null)
+            queue.offer(node.right);
+    }
+    return root;
+}
+```
+
+:::info 总结
+每一种算法的非递归实现都用到了层序遍历的迭代实现，说明这套代码模板要真的刻在骨子里啊，思考这么几个问题：
+- 要不要在while循环中使用for循环，在什么情况下？
+- 要不要把null也插入队列中，在什么情况下？
+:::
