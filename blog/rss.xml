@@ -4,9 +4,16 @@
         <title>Kay Haw's Blog Blog</title>
         <link>https://kayhaw.github.io/blog</link>
         <description>Kay Haw's Blog Blog</description>
-        <lastBuildDate>Sat, 04 Sep 2021 00:00:00 GMT</lastBuildDate>
+        <lastBuildDate>Mon, 06 Sep 2021 00:00:00 GMT</lastBuildDate>
         <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
         <generator>https://github.com/jpmonette/feed</generator>
+        <item>
+            <title><![CDATA[二叉树基本算法]]></title>
+            <link>https://kayhaw.github.io/blog/2021/09/06/BiTreeBasicAlgorithms</link>
+            <guid>二叉树基本算法</guid>
+            <pubDate>Mon, 06 Sep 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[二叉树基本算法]]></description>
+        </item>
         <item>
             <title><![CDATA[二叉树遍历]]></title>
             <link>https://kayhaw.github.io/blog/2021/09/04/BiTreeTraversal</link>
