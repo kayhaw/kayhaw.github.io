@@ -1,0 +1,49 @@
+---
+title: 算法常用数据结构(1)-单调栈
+author: 何轲
+author_title: Never settle down
+author_url: https://github.com/kayhaw
+author_image_url: https://avatars.githubusercontent.com/u/16892835?v=4
+tags: [OrderedStack]
+description: 单调栈相关算法题
+hide_table_of_contents: false
+---
+
+算法常用数据结构(1)-单调栈
+<!--truncate-->
+
+## 定义
+单调栈就是元素单调递增或递减的栈。以单调递增栈为例，如果当前入栈元素大于栈顶元素，则进行正常入栈，否则循环弹出栈内元素，直到栈为空或者栈顶元素小于入栈元素，然后再正常入栈
+
+
+## 用例
+下面介绍几种单调栈的用例
+### 买卖股票的最佳时机
+先看一道简单的算法题：[买卖股票的最佳时机](https://leetcode-cn.com/problems/best-time-to-buy-and-sell-stock/)，原题描述如下：
+> 给定一个数组prices，它的第i个元素prices[i]表示一支给定股票第i天的价格。你只能选择某一天买入这只股票，并选择在未来的某一个不同的日子卖出该股票。设计一个算法来计算你所能获取的最大利润。返回你可以从这笔交易中获取的最大利润。如果你不能获取任何利润，返回0。比如输入数组为[7,1,5,3,6,4]，输出最大利润5
+
+使用单调栈解决这个问题的基本思路：维护一个单调递增栈，遍历prices数组将其元素prices[i]压入该单调栈，然后栈顶元素减去栈底元素得到目前可获得的最大利润，取所有轮利润的最大值即为所求答案，代码如下所示：
+```java {3,7}
+public int maxProfit(int[] prices) {
+    Deque<Integer> stack = new LinkedList<>();
+    stack.push(prices[0]);
+    int maxProfit = 0;
+
+    for (int price : prices) {
+        while(!stack.isEmpty() && price < stack.peek()) {
+            stack.pop();
+        }
+        stack.push(price);
+        maxProfit = Math.max(maxProfit, stack.getFirst() - stack.getLast());
+    }
+    return maxProfit;
+}
+```
+:::tip 提示
+1. 事先把第一天价格直接压入栈
+2. while循环要进行栈的非空判断，否则当前是历史最低价的话，peek方法返回null和price比较
+:::
+
+### 买卖股票的最佳时机II
+进阶一下，[买卖股票的最佳时机II](https://leetcode-cn.com/problems/best-time-to-buy-and-sell-stock-ii/)，原题描述如下：
+> 给定一个数组prices，其中prices[i]是一支给定股票第i天的价格。设计一个算法来计算你所能获取的最大利润。你可以尽可能地完成更多的交易（多次买卖一支股票）。注意：你不能同时参与多笔交易（你必须在再次购买前出售掉之前的股票）。
