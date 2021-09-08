@@ -1,0 +1,93 @@
+---
+title: 二叉树中序遍历的应用
+author: 何轲
+author_title: Never settle down
+author_url: https://github.com/kayhaw
+author_image_url: https://avatars.githubusercontent.com/u/16892835?v=4
+tags: [Inorder Traversal]
+description: 二叉树中序遍历的应用
+hide_table_of_contents: false
+---
+
+二叉树中序遍历算法题中的实际应用
+<!--truncate-->
+
+## 验证二叉搜索树
+二叉搜索树定义为
+- 节点的左子树只包含小于当前节点的数
+- 节点的右子树只包含大于当前节点的数
+- 所有左子树和右子树自身必须也是二叉搜索树
+
+现在需要[验证二叉搜索树](https://leetcode-cn.com/problems/validate-binary-search-tree/)是否有效。首先从定义上很明显就可以用递归方法去实现，代码如下
+```java
+public boolean isValidBST(TreeNode root) {
+    return isValidBST(root, Long.MIN_VALUE, Long.MAX_VALUE);
+}
+
+public boolean isValidBST(TreeNode node, long lower, long upper) {
+    if (node == null) {
+        return true;
+    }
+    if (node.val <= lower || node.val >= upper) {
+        return false;
+    }
+    return isValidBST(node.left, lower, node.val) && isValidBST(node.right, node.val, upper);
+}
+```
+对于非递归方式验证，只需要需要牢记一点：**二叉搜索树的中序遍历结果是一个递增数组**，因此在中序遍历迭代方式代码的基础上，引入一个pre变量保存上一个遍历节点的值，通过比较当前遍历元素cur和pre的大小判断是否为二叉树，代码如下：
+```java {4}
+public boolean isValidBST(TreeNode root) {
+    Deque<TreeNode> stack = new LinkedList<>();
+    TreeNode node = root;
+    double pre = -Double.MAX_VALUE;
+    while (!stack.isEmpty() || node != null) {
+        while (node != null) {
+            stack.push(node);
+            node = node.left;
+        }
+        node = stack.pop();
+        if(node.val > pre)
+            pre = node.val;
+        else
+            return false;
+        node = node.right;
+    }
+    return true;
+}
+```
+:::caution 注意
+pre的初始值必须确保比元素类型的最小值还小，一开始用的是Integer.MIN_VALUE导致结果错误，力扣有个测试用例就是单节点树，值为-2<sup>31</sup>(Integer.MIN_VALUE)
+:::
+
+## 两数之和
+[题目描述](https://leetcode-cn.com/problems/two-sum-iv-input-is-a-bst/)：给定一个二叉搜索树root和目标值k，如果BST中存在两个元素且它们的和等于给定目标结果，则返回true，否则返回false。了解了二叉搜索树的中序遍历结果是一个递增数组这个特性后，问题就转换为求递增数组是否存在两数之和为给定目标值。要说这个可太熟了，用双指针解决：
+```java
+public boolean findTarget(TreeNode root, int k) {
+    Deque<TreeNode> stack = new LinkedList<>();
+    List<Integer> list = new ArrayList<>();
+    TreeNode node = root;
+    int sum;
+    while(!stack.isEmpty() || node != null) {
+        while (node != null) {
+            stack.push(node);
+            node = node.left;
+        }
+        node = stack.pop();
+        list.add(node.val);
+        node = node.right;
+    }
+    for (int i = 0, j = list.size()-1; i < j;) {
+        sum = list.get(i) + list.get(j);
+        if(sum == k)
+            return true;
+        else if(sum < k)
+            ++i;
+        else
+            --j;
+    }
+    return false;
+}
+```
+:::info 总结
+背下中序遍历迭代方式代码，这次做题时就因为把第一个while循环中的`||` 写成了`&&`导致出错！别一上来就把root压入栈，这不是层序遍历！
+:::
