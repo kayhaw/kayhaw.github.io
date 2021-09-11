@@ -1,0 +1,160 @@
+---
+layout: article
+title: 虚拟机类加载机制
+permalink: /UnderstandJVM-Note/chap07
+tags:
+  - Java
+  - JVM
+---
+
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
+:::info
+《深入理解Java虚拟机》第7章读书笔记
+:::
+
+Java类加载是在程序运行时间完成的，虽然增加些许性能开销，但是**却为Java应用提供了极高的扩展性和灵活性**
+
+## 类加载时机
+Java类从加载到虚拟机内存到卸载出内存经历如下所示的生命周期。加载、验证、准备、初始化、卸载这5个步骤开始顺序是确定的，但是**解析可能会在初始化之后才开始，这是为了实现Java语言的运行时绑定特性（动态绑定）**。注意说的是按顺序**开始**而不是按顺序**进行**或者**完成**，这些步骤是互相交叉进行的
+![ClassLifeCycle.svg](/img/doc/UnderstandJVM/ClassLifeCycle.svg)
+Java虚拟机规范并未对类加载时机做出要求，但是严格规定了6种需要初始化的情况（加载、链接自然要在此前完成）：
+1. 遇到new、getstatic、putstatic或者invokestatic这4条指令时，对应场景：
+    1. 使用new创建对象
+    2. 读取、设置静态字段（**被final修饰时不算**）
+    3. 调用一个类型的静态方法
+2. 使用java.lang.reflect包对类型进行反射调用时，如果类型没有被初始化则触发
+3. 初始化子类时发现父类没有初始化，触发父类初始化
+4. 包含main方法的类先被初始化
+5. 使用JDK 7动态语言支持时，如果java.lang.invoke.MethodHandle实例结果最后解析为REF_getStatic、REF_putStatic、REF_invokeStatic、REF_newInvokeSpecial这4种句柄，并且该句柄对应的类没有初始化
+6. 接口包含default方法，其实现类初始化时触发接口初始化
+
+JVM虚拟机规范规定**有且只有**以上6种情况才会触发类初始化，称之为对一个类型的**主动引用**，除此之外都不会触发初始化，称为**被动引用**，代码举例：
+```java title="被动引用示例1：子类引用父类静态变量不会导致子类初始化" {5,6}
+class SuperClass {
+    static {
+        System.out.println("SuperClass init!");
+    }
+    // 加上final修饰符父类静态块都不会执行
+    public static int value = 123;
+}
+
+class SubClass extends SuperClass {
+    static {
+        System.out.println("SubClass init!");
+    }
+}
+
+public class Classload {
+    public static void main(String[] args) {
+        System.out.println(SubClass.value);
+    }
+}
+```
+main方法获取静态字段value，只有直接定义value的父类SuperClass才会被初始化（对应情况1.ii），因此只打印“SuperClass init!”和“123”，如果给value加上final修饰符，那么只会打印“123”
+
+```java title="被动引用示例2：通过数组引用类型不会触发初始化"
+public class Classload {
+    public static void main(String[] args) {
+        SuperClass[] sca = new SuperClass[10];
+    }
+}
+```
+以上代码不会触发SuperClass初始化，由newarray指令触发虚拟机自动创建一个直接继承于java.lang.Object的子类，它表示元素类型为SuperClass的一维数组，包含length属性和clone()方法，通过该类包装对数组元素的访问
+:::warning 接口初始化
+和类初始化不同之处在于情况3：子接口初始化时不要求父接口完成初始化，只有使用到父接口时才会初始化
+:::
+
+## 类加载过程
+### 加载
+加载是**类加载**的一个阶段，不要混淆二者，它需要完成：
+1. 通过一个类的权限定名获取此类的二进制字节流
+2. 将这个字节流所代表的静态存储结构转为方法区的运行时结构
+3. 在内存中生成代表该类的Class对象
+第一步就可以玩出多种花样：
+- 从压缩包去读字节流，例如jar、war包
+- 从网络获取，例如web applet
+- 运行时计算，如动态代替
+- 从其他文件生成，如jsp
+- 从加密文件中读取
+数组类型有点不同，因为数组类是虚拟机动态构建的，但是其基本元素类型(Element Type，去掉所有维度的类型)还是要靠类加载器完成
+
+### 验证
+第一步加载的来源多种多样，可能包含恶意代码，需要通过验证，大致分为如下4个部分：
+1. 文件格式验证
+2. 元数据验证，进行语义校验
+3. 字节码验证，对方法体校验分析，确保方法运行不会危害虚拟机安全
+4. 符号引用验证，被引用类型是否已加载，是否具有访问权限
+
+### 准备
+给静态字段分配方法区中内存并设置初始值，注意初始值**通常**是指数据类型的零值（ConstantValue属性的字段除外）
+```java
+public static int value = 123;
+public static final int value = 123;
+```
+静态变量value在准备阶段后的值是0，而不是123，将其赋值为123的动作在类初始化阶段进行，如果还被final修饰则初始化为123
+
+### 解析
+将符号引用替换为直接引用的过程
+- 符号引用：与虚拟机内存布局**无关**，引用目标**不一定**已加载到虚拟机
+- 直接引用：与虚拟机内存布局**直接相关**，引用目标**一定**存在于虚拟机中
+包含如下几点：
+1. 类/接口的解析
+2. 字段解析
+3. 方法解析
+4. 接口方法解析
+
+### 初始化
+除了在加载阶段提供自定义加载器供用户应用程序部分参与外，之前类加载的阶段都是由虚拟机主导控制的。直到初始化，Java虚拟机才开始执行用户编写的Java代码，本质就是执行类构造器clinit()方法，它是由编译器从类中代码收集的所有静态块和类变量赋值语句合并产生，收集顺序就是代码出现顺序
+```java
+public class TestForwardUsage {
+    static {
+        i = 0;      // 可以赋值后来声明的变量i，但是不能获取i的值
+        // 以下代码会报错Illegal forward reference
+        System.out.println(i);
+    }
+    static int i= 1;
+
+    public static void main(String[] args) {
+        // 打印结果还是1
+        System.out.println(TestForwardUsage.i);
+    }
+}
+```
+关于clinit()方法注意以下几点：
+- 与构造方法不同，不需要调用父类clinit方法
+- 父类clinit()方法优先执行
+- clinit()方法不是必须的，当没有静态块和变量赋值时
+- 接口作为一种特殊的类，也有clinit()方法（字段初始化赋值），但是**不需要执行父接口的clinit()方法**，只有在用到父接口变量是才会触发父接口初始化
+- 虚拟机会保证多个线程下类初始化进行同步，此时只有一个线程初始化，其他被阻塞
+
+## 类加载器
+加载有意地被设计为能够脱离虚拟机控制，由用户应用程序自行实现，实现这个动作的代码被称为类加载器
+
+### 类与类加载器
+类加载器不仅仅是负责加载类这么简单，它还具有更深的意义：对于任意一个类，其在虚拟机中的唯一性由加载它的类加载器和该类本身共同决定。因此，比较两个类是否相等的前提时它们被同一个加载器加载，否则即使同一个源文件，加载到同一个虚拟机，只要加载器不同，这两个类就必不相等，这里说的相等包含equals()、isAssignableFrom()、isinstanceof()等方法
+:::caution 面试考点
+类加载器不同，类就不同
+:::
+
+### 双亲委派模型
+从虚拟机角度看，类加载器分成启动类加载器（C++实现）和其他加载器（Java实现）。具体的有：
+- 启动类加载器
+
+负责加载<JAVA_HOME>\lib目录或者由-Xbootclasspath指定路径下，并且是虚拟机能够识别的（按文件名）类库到虚拟机内存中。由于**启动类加载器无法被Java程序直接引用**，用户在自定义加载器时使用null表示使用引导类加载器处理
+
+- 扩展类加载器
+
+负责加载<JAVA_HOME>\lib\ext目录或者由java.ext.dirs系统变量中的所有类库，用户可以将通用类库放在ext目录里易扩展Java SE功能
+
+- 应用程序加载器（默认）
+
+负责加载用户类路径(ClassPath)上的所有类库，也称系统加载器
+<img alt="ParentsDelegationModel" align="middle" src={useBaseUrl('/img/doc/UnderstandJVM/ParentsDelegationModel.svg')} />
+
+JDK 9之前由以上3种类加载器配合完成类的加载，双亲委派模型的含义就是一个类加载器收到加载请求，先不自己马上去加载这个类，而是转给父类加载器，这样请求最终到达启动加载器，父类加载器找不到这个类后，子类才自己去加载
+
+:::warning 双亲委派的好处？
+1. 相同类不会被重复加载
+2. 安全性，比如自己写一个java.lang.Object类，加载的还是rt.jar包下的Object而不是自定义类
+:::
