@@ -4,9 +4,16 @@
         <title>Kay Haw's Blog Blog</title>
         <link>https://kayhaw.github.io/blog</link>
         <description>Kay Haw's Blog Blog</description>
-        <lastBuildDate>Wed, 08 Sep 2021 00:00:00 GMT</lastBuildDate>
+        <lastBuildDate>Sat, 11 Sep 2021 00:00:00 GMT</lastBuildDate>
         <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
         <generator>https://github.com/jpmonette/feed</generator>
+        <item>
+            <title><![CDATA[双亲委派机制代码解析]]></title>
+            <link>https://kayhaw.github.io/blog/2021/09/11/ParentsDelegationModel</link>
+            <guid>双亲委派机制代码解析</guid>
+            <pubDate>Sat, 11 Sep 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[双亲委派机制代码解析]]></description>
+        </item>
         <item>
             <title><![CDATA[二叉树中序遍历的应用]]></title>
             <link>https://kayhaw.github.io/blog/2021/09/08/二叉树中序遍历应用</link>
