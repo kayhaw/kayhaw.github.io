@@ -1,0 +1,133 @@
+---
+title: Java单例模式的实现
+author: 何轲
+author_title: Never settle down
+author_url: https://github.com/kayhaw
+author_image_url: https://avatars.githubusercontent.com/u/16892835?v=4
+tags: [Singleton]
+description: Java单例模式几种实现
+hide_table_of_contents: false
+---
+
+Java单例模式实现，包括饿汉式和懒汉式
+<!--truncate-->
+
+## 单例模式
+某一个类只能有一个实例对象，比如Runtime类，需要满足如下3点要求：
+- 只能有一个实例，即构造器要私有化
+- 类必须自行创建该单例，即使用静态保量保存该实例
+- 类必须自行提供该单例，可以使用public公开或者使用静态方法返回
+
+单例创建有两种方式：饿汉式和懒汉式
+
+## 饿汉式
+单例对象的饿汉式创建指直接创建对象，优点是不存在线程安全问题，缺点是无论单例是否使用都会创建
+
+### 直接实例化
+直接创建实例对象，不管是否需要这个对象
+```java
+public class Singleton {
+    public static final Singleton INSTANCE = new Singleton();
+    private Singleton() {}
+}
+```
+### 枚举创建
+利用枚举类的对象是有限个这个特性，只提供一个对象
+```java
+public enum EnumSingleton {
+    INSTANCE
+}
+```
+### 静态代码块创建
+将创建单例的new语句由字段初始化搬到静态代码块中，适合复杂实例化单例，比如当对象创建需要从文件读取配置并设置
+```java {2}
+public class StaticSingleton {
+    public static StaticSingleton INSTANCE;   // 注意去掉final
+    private String info;
+
+    static {
+        Properties pro = new Properties();
+        try {
+            pro.load(StaticSingleton.class.getClassLoader().getResourceAsStream("config.properties"));
+            INSTANCE = new StaticSingleton(pro.getProperty("info"));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private StaticSingleton(String info) {
+        this.info = info;
+    }
+}
+```
+:::info 为什么饿汉式是线程安全的？
+类加载机制的初始化阶段，执行clinit()方法时虚拟机确保是线程安全的，即多个线程执行clinit()方法只会有一个执行，其他被阻塞
+:::
+
+## 懒汉式
+懒汉式是只有在使用到这个单例时才创建并返回，尽量减少内存开销
+### 基本方式
+为了延迟单例对象的创建，不在单例变量instance声明时就初始化，而将instance声明为private的，然后把创建逻辑挪到另一个静态方法getInstance()中，该方法判断instance是否为null，是的话才new创建对象，否则说明已经创建过对象，直接返回，如此确保getInstance()方法每次返回相同对象。然而在多线程环境下，以下代码是不安全的，instance可能会被创建多次
+```java title="线程不安全的懒汉式单例创建"
+public class Singleton {
+    private static Singleton instance;
+    
+    private Singleton() {
+    }
+    
+    public static Singleton getInstance() {
+        if(instance == null) {
+            instance = new Singleton();
+            return instance;
+        }
+        return instance;
+    }
+}
+```
+
+### 线程安全方式
+为了在多线程环境下创建单例，首先使用synchronized关键字将getInstace中的代码块包裹并设置同步对象为Singleton类，但是在创建一次单例后，以后每次进入同步块带来的开销就是多余的，因此再加一层if判断避免使用同步锁
+```java title=使用DCL创建单例
+public class Singleton {
+    // 别少了volatile
+    private volatile static Singleton instance;
+    
+    private Singleton() {
+    }
+    
+    public static Singleton getInstance() {
+        if(instance == null) {
+            synchronized (Singleton.class) {
+                if(instance == null) {
+                    instance = new Singleton();
+                }
+            }
+        }
+        return instance;
+    }
+}
+```
+这种判断了2次instance是否为空的方式称之为**DCL(Double Check Lock)**。虽然synchronized确保代码块内的语句要么都执行，要么都不执行，但是new Singleton()在虚拟机中会被拆分为多条指令，再加上指令重排就会导致错误，使用volatile关键字可以避免指令重排，**注意千万不能漏了volatile关键字**
+
+### 静态内部类
+使用synchronized关键字的方式创建单例代码复杂，还可以用静态内部类来创建单例以简化代码。利用静态内部类的特性：**静态内部类不会随外部类的加载和初始化而加载、初始化，当用到其成员时才会初始化**，并且是在静态内部类的clinit方法执行创建，因此是线程安全的
+```java
+public class InnerSingleton {
+    private static InnerSingleton instance;
+    private InnerSingleton() {}
+
+    private static class Inner {
+        private static final InnerSingleton INSTANCE = new InnerSingleton();
+    }
+
+    public static InnerSingleton getInstance() {
+        return Inner.INSTANCE;
+    }
+}
+```
+:::info 总结
+1. 饿汉式单例变量是public的，懒汉式单例变量是private的
+2. 饿汉式单例在clinit方法执行中创建，因此线程安全，而懒汉式基本方式在静态方法中创建，线程不安全
+3. 饿汉式用到的Java特性：枚举，静态代码块；懒汉式用到的Java特性：synchronized、volatile关键字，静态内部类
+4. 懒汉式解决线程不安全的方式：显式使用synchronized关键字同步，隐式使用静态内部类同步
+:::
