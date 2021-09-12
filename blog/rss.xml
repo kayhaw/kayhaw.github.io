@@ -4,9 +4,23 @@
         <title>Kay Haw's Blog Blog</title>
         <link>https://kayhaw.github.io/blog</link>
         <description>Kay Haw's Blog Blog</description>
-        <lastBuildDate>Sat, 11 Sep 2021 00:00:00 GMT</lastBuildDate>
+        <lastBuildDate>Sun, 12 Sep 2021 00:00:00 GMT</lastBuildDate>
         <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
         <generator>https://github.com/jpmonette/feed</generator>
+        <item>
+            <title><![CDATA[Java单例模式的实现]]></title>
+            <link>https://kayhaw.github.io/blog/2021/09/12/JavaSingtion</link>
+            <guid>Java单例模式的实现</guid>
+            <pubDate>Sun, 12 Sep 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[Java单例模式几种实现]]></description>
+        </item>
+        <item>
+            <title><![CDATA[Java NIO(1)-Channel]]></title>
+            <link>https://kayhaw.github.io/blog/2021/9/12/JavaNIO(1)-Channel</link>
+            <guid>Java NIO(1)-Channel</guid>
+            <pubDate>Sun, 12 Sep 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[Java]]></description>
+        </item>
         <item>
             <title><![CDATA[双亲委派机制代码解析]]></title>
             <link>https://kayhaw.github.io/blog/2021/09/11/ParentsDelegationModel</link>

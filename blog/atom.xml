@@ -2,11 +2,33 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://kayhaw.github.io/blog</id>
     <title>Kay Haw's Blog Blog</title>
-    <updated>2021-09-11T00:00:00.000Z</updated>
+    <updated>2021-09-12T00:00:00.000Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://kayhaw.github.io/blog"/>
     <subtitle>Kay Haw's Blog Blog</subtitle>
     <icon>https://kayhaw.github.io/img/favicon.ico</icon>
+    <entry>
+        <title type="html"><![CDATA[Java单例模式的实现]]></title>
+        <id>Java单例模式的实现</id>
+        <link href="https://kayhaw.github.io/blog/2021/09/12/JavaSingtion"/>
+        <updated>2021-09-12T00:00:00.000Z</updated>
+        <summary type="html"><![CDATA[Java单例模式几种实现]]></summary>
+        <author>
+            <name>何轲</name>
+            <uri>https://github.com/kayhaw</uri>
+        </author>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[Java NIO(1)-Channel]]></title>
+        <id>Java NIO(1)-Channel</id>
+        <link href="https://kayhaw.github.io/blog/2021/9/12/JavaNIO(1)-Channel"/>
+        <updated>2021-09-12T00:00:00.000Z</updated>
+        <summary type="html"><![CDATA[Java]]></summary>
+        <author>
+            <name>何轲</name>
+            <uri>https://github.com/kayhaw</uri>
+        </author>
+    </entry>
     <entry>
         <title type="html"><![CDATA[双亲委派机制代码解析]]></title>
         <id>双亲委派机制代码解析</id>
