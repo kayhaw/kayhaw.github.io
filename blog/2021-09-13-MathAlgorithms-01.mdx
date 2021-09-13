@@ -1,0 +1,80 @@
+---
+title: 纯数学的算法题(1)
+author: 何轲
+author_title: Never settle down
+author_url: https://github.com/kayhaw
+author_image_url: https://avatars.githubusercontent.com/u/16892835?v=4
+tags: [Math algorithm]
+description: 纯数学的算法题(1)
+hide_table_of_contents: false
+---
+
+那些需要数学知识的算法题，第一波
+<!--truncate-->
+
+## 斐波那契数列
+常见的题目如[爬楼梯](https://leetcode-cn.com/problems/climbing-stairs/)，本质上是求f(n)=f(n-1)+f(n-2)的值
+```java
+public int climbStairs(int n) {
+    int a = 1, b = 1, c = 1;
+    while(--n != 0) {
+        c = a + b;
+        b = c;
+        a = c - a;
+    }
+    return c;
+}
+```
+注意，在另一道题[求斐波那契数列](https://leetcode-cn.com/problems/fei-bo-na-qi-shu-lie-lcof/)中初始值是从0开始的，并且要求对结果取模
+```java
+public int fib(int n) {
+    if(n == 0) return 0;
+    int a = 0, b = 0, c = 1;
+    while(--n > 0) {
+        a = b;
+        b = c;
+        c = (a + b)  % 1000000007;
+    }
+    return c;
+}
+```
+实际写代码时需要注意：
+1. 交替赋值顺序不能搞错，比如写成`c=a+b, b=c, a=b`
+2. while的退出条件是`--n > 0`，一定是`--`在前面
+3. 取模这里比较坑，一开始按照爬楼梯的解题代码就写成了`c = (a+b)%1000000007, b=c, a=b`，导致部分测试用例没有通过
+总结起来还是第二段代码更为全面，能够处理f(0)的情况，直接背下来吧
+
+## 灯泡开关
+[原题](https://leetcode-cn.com/problems/bulb-switcher/)描述：
+> 初始时有n个灯泡处于关闭状态。对某个灯泡切换开关意味着：如果灯泡状态为关闭，那该灯泡就会被开启；而灯泡状态为开启，那该灯泡就会被关闭。    
+第 1 轮，每个灯泡切换一次开关。即，打开所有的灯泡。    
+第 2 轮，每两个灯泡切换一次开关。 即，每两个灯泡关闭一个。    
+第 3 轮，每三个灯泡切换一次开关。    
+第 i 轮，每 i 个灯泡切换一次开关。 而第 n 轮，你只切换最后一个灯泡的开关。  
+找出 n 轮后有多少个亮着的灯泡。    
+
+一开始试图对1,2,3,4几种较小情况分析出结果然后判断结果是否是某种规则的数列，实际上没有，接着又上头想着能不能转成动态规划，还是不行。看了题解，从1开始对灯泡编号，对于灯泡k，它在什么时候切换开关呢？从第1,2,3,4到i，发现**当k能整除i时灯泡k切换一次开关**，并且只需要关注切换次数的奇偶性，那切换几次呢？由于轮数从1到k，那切换次数就是k的所有因子的个数，到了这里就需要引入一个重要的数学理论
+:::info 因数个数的奇偶性
+当整数k为完全平方数时，其因数个数为奇数，否则为偶数
+:::
+所以，对于灯泡k，当k为完全平方数时，此时它切换开关奇数次，最后为点亮状态，否则为熄灭状态。因此问题即转换为求1到n中完全平方数的个数：
+```java
+public int bulbSwitch(int n) {
+    int ans = 0;
+    for(int i = 1; i * i <= n; ++i) {
+        ++ans;
+    }
+    return ans;
+}
+```
+
+## 用rand7生成rand10
+[原题](https://leetcode-cn.com/problems/implement-rand10-using-rand7/)描述：
+> 已有方法`rand7`可生成1到7范围内的均匀随机整数，试写一个方法`rand10`生成1到10范围内的均匀随机整数。不要使用系统的`Math.random()`方法。
+
+一开始是有点懵逼的，冷静分析后是要对`rand7()`进行一些加减乘除运算后返回一个数。那怎么进行四则运算随机产生1到10的数呢？这里要引出2个重要概率公式
+:::info Rand_XY
+令Rand_N表示随机生成1到N的方法，那么有:    
+**Rand_XY = (Rand_X - 1) * Rand_Y + Rand_Y**    
+其中Rand_XY中的XY表示X乘以Y
+:::
