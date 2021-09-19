@@ -1,0 +1,151 @@
+---
+title: 2021年9月份工作日志
+author: 何轲
+author_title: Never settle down
+author_url: https://github.com/kayhaw
+author_image_url: https://avatars.githubusercontent.com/u/16892835?v=4
+tags: [Work Journal]
+description: 2021年9月份工作日志
+hide_table_of_contents: false
+---
+
+包含从3月份到9月份的工作日志，主要记录新学到的零星技术点
+<!--truncate-->
+:::tip :lock:安全问题
+后端对用户密码加密保存时，实际加密的字段是`用户名+用户密码`，这样可以防止登录数据库复制另一个已知的用户密码字段从而修改用户密码的行为
+:::
+
+:::tip :sparkles:Shell技巧
+在编写shell脚本时，当命令过长时往往使用空格加`\`进行分行书写，通常每一行对应一个参数配置，如果要注释这行配置，直接在行首加上`#`是错误的，还要用`` ` ``包裹表示执行命令，而该命令以`#`开头又相当于不执行
+```bash {7}
+docker run -d \
+--code nginx \
+--restart=always \
+-p 80:80 \
+-v /opt/xxx/conf/:/etc/nginx/custom/conf/ \
+-v /opt/nginx.conf:/etc/nginx/nginx.conf \
+`# -v /opt/volume/html:/usr/share/nginx/html \`
+-v /opt:/usr/share/nginx/html \
+```
+:::
+
+:::info :memo:mkcert基本使用
+Https自签名证书生成方式：
+1. github项目下载软件包mkcert-v1.4.3-linux-amd64
+2. `chmod +x mkcert-v1.4.3-linux-amd64`
+3. `./mkcert-v1.4.3-linux-amd64 -install`生成根证书，存放路径由 ./mkcert-v1.4.3-linux-amd64 xxx给出
+4. `./mkcert-v1.4.3-linux-amd64 kayhaw.github.io`为域名地址生成证书，可以指定多个域名、ip地址，使用空格分开
+:::
+
+:::info :memo:SQL和数据库
+1. 小于、大于号在xml文件中是特殊符号，不能直接写`>`、`<`，改成`&lt;`、`&gt;`
+2. 13位时间戳格式化使用MySQL提供的FROM_UNIXTIME方法，注意先要除以1000
+3. MySQL timestampdiff用法：`TIMESTAMPDIFF(<UNIT>, <time1>, <time2>)`，其中`<UNIT>`是关键字`HOUR`、`DAY`等
+4. 模糊匹配多字段：`INSTR(CONCAT(A, B, C), <匹配内容>) &gt; 0`或者`CONCAT(A, B, C) LIKE CONCAT('%', <>, '%')`
+5. 使用`<where>`标签而不是`where 1=1`
+6. MyBatis接口方法返回参数为List或Set，xml文件中的resultType不要写java.util.List，而是泛型参数全类名
+7. if测试条件写法，第一种写法是错误的，单引号'0'会被视为字符而不是String类型
+```xml
+<if test="code != null and code != '0' and code != '1'">
+    AND user.code = #{code}
+</if>
+<if test="code != null and code != '0'.toString() and code != '1'.toString()">
+    AND user.code = #{code}
+</if>
+```
+8. 多表连接查询时，可能具有相同的字段名称，需要带上表名前缀
+9. 多表left join连接查询，右边表字段都是空，后面又加了where筛选条件，导致需要部分字段为空的组合记录被过滤出去
+10. mybatis list改in sql语句的写法
+```xml
+<if test="names != null and names.size() > 0">
+    AND t.name IN
+    <foreach collection="names" item="name" index="index" open="(" separator="," close=")">
+        #{name}
+    </foreach>
+</if>
+```
+11. :rotating_light:MySql JDBC的getInt、getDouble、getBoolean等方法，在表字段值为null时返回类型零值，为了逻辑正确使用getObject代替，实际上这些方法的底层实现都是用getObject然后强制转换
+12. :clown_face:表名不能用来做PrepareStatement的占位符：`PreparedStatement statement = connection.prepareStatement("SELECT * FROM ? LIMIT ?");`，经过解析之后是`SELECT * FROM 'kayhaw_test' LIMIT 1000`，表名带上了双引号，sql执行报错
+13. Hive建表`escaped by`写成了`escape by`，没有加`d`是因为dbeaver自动提示的，以为是正确的
+14. Hive数据库字段名可能包含各种特殊字符，在select查询时用反引号将字段名包裹起来；类似，当hive用户查询另一表空间的表时，需要给schema和表名加上反引号
+15. MySql建库建表默认字符集排序应该是敏感的，结果选错以utf8bm4-ci字符集导致大小写不敏感，建库向下影响建表，即使改回来后也不会生效，需要重新建库建表
+16. 达梦数据库和Oracle一样，在select字段列表中的字段也必须包含在group by语句中，否则会报错“不是group by表达式”，并且排序字段也需要出现在group by列表中
+17. MySQL的group by后接字段列表不能用圆括号包起，否则报错，但是达梦数据库可以
+18. HSQL中`cast as integer`导致错误，字段类型为decimal并且有个字段值为9311054824大于integer的范围，改成`cast as long`，注意这里是Java中的类型，全小写
+:::
+
+:::tip :arrow_down:Harbor拉取镜像和保存
+1. 登录harbor，选择最新的应用镜像
+2. 旁边有拉取命令，点击复制得到`docker pull example.com/demo helloworld@sha256:0c014719011a375c09d3167c119e24793b415354d0a02ddd4171014812b35ce7`
+3. 使用sha标记拉取的镜像没有标签
+4. 点击详情，选择tag名称0.0.1-2021042019，把@sha256xxx换成:0.0.1-2021042019，注意别漏了冒号
+5. 保存拉取镜像为tar文件`docker save -o helloworld.tar example.com/demo/helloworld:0.0.1-2021042019`
+注意这里还是用仓库名+冒号+tag的形式，不要使用docker images列出的id，否则保存的镜像文件还是没有仓库和tag信息
+6. `docker load -i api-appgateway.tar`加载镜像文件
+:::
+
+:::tip :memo:SpringBoot
+- 项目报错`FactoryBean threw exception on object creation; nested exception is java.lang.IllegalStateException: RequestParam.value() was empty on parameter 0`，原因是@RequestParam注解没有加value参数值，在fegin接口文件中这是必填的
+- swagger参数对象中ApiModel的value注解不能重复，否则会把两个的字段合并作为文档的参数
+- 服务报错no such method，原因是老版本的服务重新注册到nacos，负载均衡找这个服务调用方法报错，解决方法是下线该服务
+:::
+
+:::tip :coffee:获取今天0点时间戳的两种方式
+- 方式1：得到精确取零点零分零秒
+```java
+long current = System.currentTimeMillis();
+long zero = current/(1000*3600*24)*(1000*3600*24) - TimeZone.getDefault().getRawOffset();
+```
+- 方式2：
+```java {6}
+Calendar calendar = Calendar.getInstance();
+calendar.setTime(new Date());
+calendar.set(Calendar.HOUR_OF_DAY, 0);
+calendar.set(Calendar.MINUTE, 0);
+calendar.set(Calendar.SECOND, 0);
+calendar.set(Calendar.MILLISECOND, 0);    // 别漏了毫秒
+zero = calendar.getTime().getTime();
+```
+:::
+
+:::tip :white_check_mark:开发注意事项
+1. 接口一旦确定就不要再改参数名称
+2. 数据表一旦确定就不要再修改字段名称
+3. 当返回分页结果时用Page包装而不是List返回
+4. 涉及用户id的参数不需要前端传输，使用注解统一获取
+6. Feigned接口定义的RequestParam注解需要加上value属性
+7. 服务接口实现类要加上service注解
+:::
+
+:::tip :coffee:Java API使用
+- 摘取括号之间的内容写法：`value.substring(value.indexOf('(')+1, value.lastIndexOf(')'))`，注意开始位置是左括号+1，结束位置就是右括号
+- String split的参数是正则表达式，而点好在正则表达式中匹配任意1个字符，以点号分割写法是：`String[] arr = str.split("\\.");`
+- 判断对象是否为null：[`Objects.isNull()`](https://zhuanlan.zhihu.com/p/347581992)
+- JDBC的`getDate()`返回类型是java.sql.Date，不是java.utils.Date，注意区别！！！
+- Guava API：使用`Maps.newHashMapWithExpectedSize(c.size())`生成一个初始化大小的HashMap
+:::
+
+:::tip 日常:clown_face:
+1. bootstrap.properties环境配置，active文件由local改为了test，导致查询的数据库是测试环境的，一直报错找不到使用的数据表
+2. 本地bootstrap.properties配置被改，local环境的namespace没有设置成本地环境的配置，导致启动报错找不到redis配置
+3. 对象描述，对象名称等字段在数据库字段设计时要和前端确认最大长度限制
+4. flyway一次只能接入一个后端业务库，因为一个微服务后端对应一个业务库
+5. 统计当天日期是大于等于当天0点0分，而不是大于
+6. flyway执行sql脚本报错，原因是给longtext加了默认值空字符串，但是longtext不能设置默认值
+7. 在排序查询后不要再根据业务单独对字段值排序，否则之前的排序失效，排序就是一起的
+8. DELETE语句后面不跟字段，错误写法：`DELETE * FROM STUDENT WHERE NAME = #{name}`
+9. pageHelper分页参数由方法参数指定时还是要加上@Param("pageNum")注释，单单`Integer pageNum`不生效
+10. Nacos修改配置，需要重启docker服务，部署多个节点全部都要重启
+11. MyBatis的xml文件中，更新方法一时手快使用了`<select>`标签而不是`<update>`标签导致出错
+12. swagger页面参数对象没有显式字段名称和类型，原因是类字段没有setter和getter方法，或者使用lombok的@Data注解
+:::
+
+:::tip :wrench:工具使用
+- Windows下使用Docker Desktop启动MySQL服务
+```bash
+# 拉镜像
+docker pull mysql:5.7.18
+# 启动容器，-p端口映射配置不要放在-d配置项后面
+docker run --name mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=123456 -d mysql:5.7.18
+```
+:::
