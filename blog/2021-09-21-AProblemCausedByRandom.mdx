@@ -1,0 +1,184 @@
+---
+title: Random导致的阻塞问题
+author: 何轲
+author_title: Never settle down
+author_url: https://github.com/kayhaw
+author_image_url: https://avatars.githubusercontent.com/u/16892835?v=4
+tags: [Random, OpenJDK]
+description: 记一次由Random导致的阻塞问题
+hide_table_of_contents: false
+---
+
+记一次由Random使用不恰当导致的阻塞问题
+<!--truncate-->
+
+## 问题描述
+某次产品在线网项目部署后，每次点击申请表单时页面都会卡住，日志也不见异常，使用jstack调出日志，发现如下异常
+```log
+"http-nio-9903-exec-9" #104 daemon prio=5 os_prio=0 tid=0x00007fab00f4a800 nid=0x85 waiting for monitor entry [0x00007fa8efcf8000]
+   java.lang.Thread.State: BLOCKED (on object monitor)
+	at sun.security.provider.NativePRNG$RandomIO.getMixRandom(NativePRNG.java:399)
+	- waiting to lock <0x0000000080ad93f8> (a java.lang.Object)
+	at sun.security.provider.NativePRNG$RandomIO.implNextBytes(NativePRNG.java:535)
+	at sun.security.provider.NativePRNG$RandomIO.access$400(NativePRNG.java:331)
+	at sun.security.provider.NativePRNG$Blocking.engineNextBytes(NativePRNG.java:268)
+	at java.security.SecureRandom.nextBytes(SecureRandom.java:468)
+	at java.security.SecureRandom.next(SecureRandom.java:491)
+	at java.util.Random.nextInt(Random.java:390)
+  ...
+```
+这里代码调用了Random.nextInt()方法，为业务申请表单生成一个4位随机号码。可以看到阻塞原因来自SecureRandom
+
+## 原因分析
+SecureRandom生成随机数需要随机种子，一般从/dev/random或/dev/urandom中获取，在SecureRandom源码上有如下注释：
+> Note: Depending on the implementation, the generateSeed and 
+nextBytes methods may block as entropy is being gathered,
+ for example, if they need to read from /dev/random on various 
+Unix-like operating systems.
+
+如果实现类从/dev/random中读取，那么nextBytes()方法可能会被阻塞，由此导致上述问题
+
+## 解决方法
+1. 在获取SecureRandom对象时不要用`SecureRandom.getInstanceStrong()`，改成`SecureRandom.getInstance("NativePRNGNonBlocking")`
+2. 启动参数添加-Djava.security.egd=file:/dev/urandom
+3. 修改$JAVA_HOME/jre/lib/security/java.security文件，将配置项securerandom.source修改为`securerandom.source=file:/dev/random`
+
+## 深入研究
+
+### java.util.Random
+使用线性同余伪随机数生成器(LGC)，其缺点是可预测的，因此注重安全时应使用SecureRandom代替Random，Random默认使用系统当前时间作为种子，**只要种子一样，产生随机数也相同**
+```java
+public void sameSeedTest() {
+    Random r1 = new Random(123);
+    Random r2 = new Random(123);
+    for (int i = 0; i < 5; i++) {
+        // 输出都为true
+        System.out.println(r1.nextInt() == r2.nextInt());
+    }
+}
+```
+Random生成随机数分为两步：
+1. 由旧seed生成新seed
+2. 由新seed生成新随机数
+在Random中seed是一个AtomicLong对象，看next方法源码
+```java
+protected int next(int bits) {
+    long oldseed, nextseed;
+    AtomicLong seed = this.seed;
+    do {
+        oldseed = seed.get();
+        nextseed = (oldseed * multiplier + addend) & mask;
+    } while (!seed.compareAndSet(oldseed, nextseed));
+    return (int)(nextseed >>> (48 - bits));
+}
+```
+当设置新seed时使用CAS操作更新，因此在多线程场景下一个共享的Random对象生成的随机数仍然不是相同的
+
+### java.util.concurrent.ThreadLocalRandom
+Random类使用CAS操作确保每次只有一个线程更新seed，但是增加了开销和线程竞争。为了避免竞争，JDK 7引入ThreadLocalRandom类，给每个线程都保存它自己的seed，使用代码如下：
+```java
+public class TLRDemo {
+    private static class RNGPrinter extends Thread {
+        @Override
+        public void run() {
+            System.out.println(getName() + ": " + ThreadLocalRandom.current().nextInt(100));
+        }
+    }
+    public static void main(String[] args) {
+        for (int i = 0; i < 5; i++) {
+            new RNGPrinter().start();
+        }
+    }
+}
+```
+分析一下`ThreadLocalRandom.current().nextInt(100))`这行代码的含义
+```java title=java/util/concurrent/ThreadLocalRandom.java
+ /** The common ThreadLocalRandom */
+static final ThreadLocalRandom instance = new ThreadLocalRandom();
+
+public static ThreadLocalRandom current() {
+    if (UNSAFE.getInt(Thread.currentThread(), PROBE) == 0)
+        localInit();
+    return instance;
+}
+```
+使用UNSAFT.getInt操作获取当前Thread对象threadLocalRandomProbe字段的值，这里PROBE是该字段在Thread对象中的偏移地址，如果threadLocalRandomProbe值为0，说明当前线程还没有用过随机数生成器，先初始化然后返回静态变量instance，初始化方法localInit()代码如下：
+```java {5-7}
+static final void localInit() {
+    int p = probeGenerator.addAndGet(PROBE_INCREMENT);
+    int probe = (p == 0) ? 1 : p; // skip 0
+    long seed = mix64(seeder.getAndAdd(SEEDER_INCREMENT));
+    Thread t = Thread.currentThread();
+    UNSAFE.putLong(t, SEED, seed);
+    UNSAFE.putInt(t, PROBE, probe);
+}
+```
+这个通过UNSAFE.putXxx方法给当前线程的threadLocalRandomSeed和threadLocalRandomProbe字段设置初始值，注意设置probe时如果生成了0就设置为1，确保初始化后线程的probe一定是非0值，接下来再看ThreadLocalRandom.nextInt方法
+```java {4,11}
+public int nextInt(int bound) {
+    if (bound <= 0)
+        throw new IllegalArgumentException(BadBound);
+    int r = mix32(nextSeed());
+    int m = bound - 1;
+    if ((bound & m) == 0) // power of two
+        r &= m;
+    else { // reject over-represented candidates
+        for (int u = r >>> 1;
+              u + m - (r = u % bound) < 0;
+              u = mix32(nextSeed()) >>> 1)
+            ;
+    }
+    return r;
+}
+```
+主要关心nextSeed()方法，它通过旧seed生成新seed并返回，还是用到了UNSAFE类的putXxx和getXxx，注意这里生成新seed就是在旧seed值上加GAMMA，这是一个固定值
+```java
+/**
+ * The seed increment
+ */
+private static final long GAMMA = 0x9e3779b97f4a7c15L;
+
+final long nextSeed() {
+    Thread t; long r; // read and update per-thread seed
+    UNSAFE.putLong(t = Thread.currentThread(), SEED,
+                    r = UNSAFE.getLong(t, SEED) + GAMMA);
+    return r;
+}
+```
+:::danger ThreadLocalRandom错误使用:angry:
+以下代码每个线程产生的随机数都是相同的，**在主线程中调用ThreadLocalRandom.current()方法，则新seed存放在主线程中**，因此第一次每个线程执行时去拿自己的seed值都为0，产生的新seed又是相同的，故所有线程调用相同次数nextInt()方法产生的随机数都是相同的
+```java
+public class ErrorTLRDEMO {
+    private static class RNGPrinter extends Thread {
+        private ThreadLocalRandom tlr;
+        public RNGPrinter(ThreadLocalRandom tlr) {
+            this.tlr = tlr;
+        }
+        @Override
+        public void run() {
+            System.out.println(getName() + ": " + tlr.nextInt(100));
+        }
+    }
+    public static void main(String[] args) {
+        ThreadLocalRandom tlr = ThreadLocalRandom.current();
+        for (int i = 0; i < 5; i++) {
+            new ErrorTLRDEMO.RNGPrinter(tlr).start();
+        }
+    }
+}
+```
+:::
+:::tip 总结
+ThreadLocalRandom并没有使用到synchronized或者Lock等同步操作，它只是生成seed然后通过UNSAFE存放到Thread类的字段中，即为每一个线程单独设置一个seed，当某个线程需要生成随机数时，ThreadLocalRandom又从该线程取出seed然后计算得到随机数，从而避免多线程竞争和自旋等待
+:::
+
+### SecureRandom
+Random和ThreadLocalRandom产生随机数并不是密码学安全的(not cryptographically secure)，而SecureRandom提供了满足加密要求的强随机数生成器。
+
+## 总结
+1. 从Java语法角度上看，SecureRandom和ThreadLocalRandom都是Random子类
+2. ThreadLocalRandom.current()一定要有各个线程调用
+3. 重复使用SecureRandom生成随机数可能会导致阻塞
+
+## 参考文档
+1. [SecureRandom使用不当引起的线程阻塞](https://www.cnblogs.com/it-deepinmind/p/13344553.html)
