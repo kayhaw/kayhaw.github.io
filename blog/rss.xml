@@ -4,9 +4,23 @@
         <title>Kay Haw's Blog Blog</title>
         <link>https://kayhaw.github.io/blog</link>
         <description>Kay Haw's Blog Blog</description>
-        <lastBuildDate>Sun, 19 Sep 2021 00:00:00 GMT</lastBuildDate>
+        <lastBuildDate>Tue, 21 Sep 2021 00:00:00 GMT</lastBuildDate>
         <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
         <generator>https://github.com/jpmonette/feed</generator>
+        <item>
+            <title><![CDATA[Random导致的阻塞问题]]></title>
+            <link>https://kayhaw.github.io/blog/2021/09/21/AProblemCausedByRandom</link>
+            <guid>Random导致的阻塞问题</guid>
+            <pubDate>Tue, 21 Sep 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[记一次由Random导致的阻塞问题]]></description>
+        </item>
+        <item>
+            <title><![CDATA[网络基础知识(1)]]></title>
+            <link>https://kayhaw.github.io/blog/2021/09/20/TCPBasic</link>
+            <guid>网络基础知识(1)</guid>
+            <pubDate>Mon, 20 Sep 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[网络基础知识(1)]]></description>
+        </item>
         <item>
             <title><![CDATA[2021年9月份工作日志]]></title>
             <link>https://kayhaw.github.io/blog/2021/09/19/WorkJournal</link>
