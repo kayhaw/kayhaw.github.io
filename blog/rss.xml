@@ -4,9 +4,16 @@
         <title>Kay Haw's Blog Blog</title>
         <link>https://kayhaw.github.io/blog</link>
         <description>Kay Haw's Blog Blog</description>
-        <lastBuildDate>Sun, 03 Oct 2021 00:00:00 GMT</lastBuildDate>
+        <lastBuildDate>Sun, 10 Oct 2021 00:00:00 GMT</lastBuildDate>
         <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
         <generator>https://github.com/jpmonette/feed</generator>
+        <item>
+            <title><![CDATA[每日算法题-字符串的排列]]></title>
+            <link>https://kayhaw.github.io/blog/2021/10/10/CheckInclusion</link>
+            <guid>每日算法题-字符串的排列</guid>
+            <pubDate>Sun, 10 Oct 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[每日算法题-字符串的排列]]></description>
+        </item>
         <item>
             <title><![CDATA[Flink入门学习(2)]]></title>
             <link>https://kayhaw.github.io/blog/2021/10/03/FlinkLearning-02</link>
