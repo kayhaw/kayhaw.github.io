@@ -1,0 +1,127 @@
+---
+title: 每日算法题-字符串的排列
+author: 何轲
+author_title: Never settle down
+author_url: https://github.com/kayhaw
+author_image_url: https://avatars.githubusercontent.com/u/16892835?v=4
+tags: [Algorithm]
+description: 每日算法题-字符串的排列
+hide_table_of_contents: false
+---
+
+## 原题描述
+给你两个字符串s1和s2，写一个函数来判断s2是否包含s1的排列。如果是，返回true；否则，返回false。换句话说，s1的排列之一是s2的子串。
+```bash title=示例
+输入：s1 = "ab" s2 = "eidbaooo"
+输出：true
+解释：s2 包含 s1 的排列之一 ("ba").
+
+输入：s1= "ab" s2 = "eidboaoo"
+输出：false
+```
+**提示：1 <= s1.length, s2.length <= 10^4，s1和s2仅包含小写字母**
+
+## 解题思路
+题目意思是求证是否存在s2子串sub2，使得sub2为s1的一种排列，这里只需要关心sub2中字符类型和个数与s1的相等即可，由于已经提示s1和s2仅包含小写字母，可以直接使用长度为26的int数组来记录每个小写字母出现个数
+
+对于目标串s1和子串sub2，分别使用`int pattern[26]`和`int window[26]`来记录字符出现情况。如果parttern[26]每个元素等于window[26]，说明此时sub2是s1的一种排列。接下来还要确定sub2内容，由于sub2长度等于s1长度，使用固定大小的滑动窗口在s2上移动得到sub2，具体代码如下所示：
+```java
+class Solution {
+    public boolean checkInclusion(String s1, String s2) {
+        int[] pattern = new int[26];
+        int[] window = new int[26];
+        int patternSize = s1.length(), sourceSize = s2.length();
+        if(patternSize > sourceSize)
+            return false;
+        // 初始统计
+        for (int i = 0; i < patternSize; i++) {
+            pattern[s1.charAt(i)-'a']++;
+            window[s2.charAt(i)-'a']++;
+        }
+        // 判断一开始窗口是否满足条件
+        if(Arrays.equals(pattern, window)) {
+            return true;
+        }
+        // 窗口滑动，判断是否满足条件
+        for (int i = patternSize; i < sourceSize; ++i) {
+            window[s2.charAt(i)-'a']++;   // 左侧字符个数减1
+            window[s2.charAt(i-patternSize)-'a']--; // 右侧字符个数加1
+            if(Arrays.equals(pattern, window)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+```
+:::tip 编程事项
+- 当s1长度大于s2时直接返回false
+- 首先确定第一个滑动窗口字符情况并判断比较，然后才滑动窗口
+- 使用Arrays.equals(int[], int[])方法进行数组比较
+:::
+
+## 方案优化
+上述解决方案每次确定sub2是否为s1的排列时，都要对两个统计数组的每个元素依次比较大小，实际上窗口滑动时，只会出去1个字符，加入1个字符，即window数组只会改变2（或0，出去进来是同一个字符）个元素值，没有必要重新比较这26个元素大小
+
+为此，只使用一个`int diff[26]`数组来表示s1和sub2中每个字符的个数差，再用变量diffCount表示diff数组中元素不为0的个数，当diffCount为0时即表明sub2是s1的一种排列，实现代码如下所示：
+```java
+class Solution {
+    public boolean checkInclusion(String s1, String s2) {
+        int[] diff = new int[26];
+        int patternSize = s1.length(), sourceSize = s2.length();
+        int diffCount = 0, left, right;
+
+        if(patternSize > sourceSize)
+            return false;
+        // 初始统计
+        for (int i = 0; i < patternSize; i++) {
+            diff[s1.charAt(i)-'a']++;
+            diff[s2.charAt(i)-'a']--;
+        }
+        for (int i = 0; i < 26; i++) {
+            if(diff[i] != 0) {
+                diffCount++;
+            }
+        }
+        // 判断一开始窗口是否满足条件
+        if(diffCount == 0) {
+            return true;
+        }
+        // 滑动窗口，判断是否满足条件
+        for (int i = patternSize; i < sourceSize; ++i) {
+            left = s2.charAt(i-patternSize)-'a';
+            right = s2.charAt(i)-'a';
+            if(left == right) {
+                continue;
+            }
+            if(diff[left] == 0) {
+                diffCount++;
+            }
+            ++diff[left];           // 注意是加1
+            if(diff[left] == 0) {
+                diffCount--;
+            }
+            if(diff[right] == 0) {
+                diffCount++;
+            }
+            --diff[right];          // 注意是减1
+            if(diff[right] == 0) {
+                diffCount--;
+            }
+            if(diffCount == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+```
+:::caution 注意
+- 首先需要判断出去进来的字符是否相同，若相同直接往下滑
+- 在更新字符个数差之前，如果字符个数差为0，此时需要给diffCount加1(出现了新的个数不相同字符)，否则不需要
+- 更新字符个数差，由于diff保存的是s1字符个数减去sub2字符个数，所以出去的字符位置left对应元素加1，而不是减1，相反地，进来的字符位置right对应元素减1
+- 更新完left和right的字符个数差后，如果字符个数差为0，需要将diffCount减1，最后看diffCount是否为0
+:::
+
+## 总结
+优化方案有两个坑，一是需要判断left和right是否相同(不影响结果正确性，跳过可以减少不必要的代码执行)，二是更新diff[left]和diff[right]需要理清楚到底是加1还是减1
