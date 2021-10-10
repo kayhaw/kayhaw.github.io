@@ -4,15 +4,36 @@
         <title>Kay Haw's Blog Blog</title>
         <link>https://kayhaw.github.io/blog</link>
         <description>Kay Haw's Blog Blog</description>
-        <lastBuildDate>Tue, 21 Sep 2021 00:00:00 GMT</lastBuildDate>
+        <lastBuildDate>Sun, 03 Oct 2021 00:00:00 GMT</lastBuildDate>
         <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
         <generator>https://github.com/jpmonette/feed</generator>
+        <item>
+            <title><![CDATA[Flink入门学习(2)]]></title>
+            <link>https://kayhaw.github.io/blog/2021/10/03/FlinkLearning-02</link>
+            <guid>Flink入门学习(2)</guid>
+            <pubDate>Sun, 03 Oct 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[Flink入门学习(2)]]></description>
+        </item>
+        <item>
+            <title><![CDATA[Flink入门学习(1)]]></title>
+            <link>https://kayhaw.github.io/blog/2021/10/02/FlinkLearning-01</link>
+            <guid>Flink入门学习(1)</guid>
+            <pubDate>Sat, 02 Oct 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[Flink入门学习(1)]]></description>
+        </item>
         <item>
             <title><![CDATA[Random导致的阻塞问题]]></title>
             <link>https://kayhaw.github.io/blog/2021/09/21/AProblemCausedByRandom</link>
             <guid>Random导致的阻塞问题</guid>
             <pubDate>Tue, 21 Sep 2021 00:00:00 GMT</pubDate>
             <description><![CDATA[记一次由Random导致的阻塞问题]]></description>
+        </item>
+        <item>
+            <title><![CDATA[求最长回文子串]]></title>
+            <link>https://kayhaw.github.io/blog/2021/09/21/LongestPalindrome</link>
+            <guid>求最长回文子串</guid>
+            <pubDate>Tue, 21 Sep 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[求最长回文子串]]></description>
         </item>
         <item>
             <title><![CDATA[网络基础知识(1)]]></title>
