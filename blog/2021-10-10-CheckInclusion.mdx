@@ -123,5 +123,44 @@ class Solution {
 - 更新完left和right的字符个数差后，如果字符个数差为0，需要将diffCount减1，最后看diffCount是否为0
 :::
 
+## 题目改进
+将题目改为输出所有满足条件的子串sub2的起始位置，作为数组返回。**此时需要注意，当left和right相等时不能`continue`跳过**，否则会错失正确答案，比如s1为“ab”，s2为“abab”，此时会因为跳过而漏掉了位置1，2
+```java
+for (int i = 0; i < patternLen; i++) {
+    ++diff[s.charAt(i) - 'a'];
+    --diff[p.charAt(i) - 'a'];
+}
+for (int i : diff) {
+    if(i != 0) {
+        ++diffCount;
+    }
+}
+if(diffCount == 0) {
+    ans.add(0);
+}
+
+for (int i = patternLen; i < sourceLen; i++) {
+    left = s.charAt(i-patternLen) - 'a';
+    right = s.charAt(i) - 'a';
+    if(diff[left] == 0) {
+        ++diffCount;        // 注意这里是+1，diff[]含义改变了
+    }
+    --diff[left];
+    if(diff[left] == 0) {
+        --diffCount;
+    }
+    if(diff[right] == 0) {
+        ++diffCount;
+    }
+    ++diff[right];
+    if(diff[right] == 0) {
+        --diffCount;
+    }
+    if(diffCount == 0) {
+        ans.add(i-patternLen+1);    // 注意答案位置的计算要加1
+    }
+}
+```
+
 ## 总结
 优化方案有两个坑，一是需要判断left和right是否相同(不影响结果正确性，跳过可以减少不必要的代码执行)，二是更新diff[left]和diff[right]需要理清楚到底是加1还是减1
