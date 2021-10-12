@@ -1,0 +1,108 @@
+---
+title: 求最长回文子串
+author: 何轲
+author_title: Never settle down
+author_url: https://github.com/kayhaw
+author_image_url: https://avatars.githubusercontent.com/u/16892835?v=4
+tags: [Algorithm, Palindrome, Manacher]
+description: 求最长回文子串
+hide_table_of_contents: false
+---
+
+算法题：求最长回文子串
+<!--truncate-->
+
+## 题目描述
+[最长回文子串](https://leetcode-cn.com/problems/longest-palindromic-substring/)：给定一个字符串`s`，找到`s`中最长的回文子串，示例：s="babad"，输出为"bab"
+
+## Manacher算法
+
+### 构造新字符串
+由于偶数长度的回文串没有中心字符，这里由原字符串s构造一个新字符串str。构造规则：取三个**互不相同且不会在s中出现**的字符，以`^`、`$`、`#`为例，首先用`$`作为首字符，然后在s字符之间插入`#`，最后插入`^`，这样方便后序的中心扩散操作时不用判断是否溢出边界，如下所示：
+```java
+public String initStr(String s) {
+    StringBuilder sb = new StringBuilder("$#");
+    for (int i = 0; i < s.length(); i++) {
+        sb.append(s.charAt(i));
+        sb.append('#');
+    }
+    sb.append('^');     // 注意还要加另一个不相干的字符，这样下面的扩展不用判断边界是否溢出
+    return sb.toString();
+}
+```
+
+### 找到回文中心和最大长度
+1. 当i小于当前最长回文的上界upBound时
+    1. 以i为中心的回文长度至少为对称点回文长度或者upBound-i
+2. 当i大于等于最长回文的上界时
+    1. 没有规律，只好从1开始
+3. while循环由i逐渐向两端扩展，这里不需要判断i是否超过边界
+4. 当i+expand[i]大于upBound时，更新upBound和center
+5. 当expand[i]大于最大长度maxLength时，更新finalCenter和maxLength
+6. 返回结果，子串起始位置`start`为`(finalCenter-maxLength)/2`，结束位置为`start+maxLength-1`
+```java
+public String manacher(char[] str, String s) {
+    int i, center = 0, upBound = 0, maxLength = 0, finalCenter = 0;
+    int len = str.length;
+    int[] expand = new int[len];
+    // i从1开始，到len-1结束，注意！
+    for (i =1; i < len-1; ++i) {
+        // 可以跳过步数
+        expand[i] = (i < upBound) ? Math.min(expand[2*center - i], upBound-i) : 1;
+        // 两端比较，注意先判断边界条件再跳
+        while(str[i-expand[i]] == str[i+expand[i]]) {
+            expand[i]++;
+        }
+        // 更新中心点和上界
+        if(expand[i] + i > upBound) {
+            center = i;
+            upBound = expand[i] + i;
+        }
+        // 更新最长回文串长度及其下标
+        if(expand[i] > maxLength) {
+            maxLength = expand[i];
+            finalCenter = i;
+        }
+    }
+    // 注意最后返回最大长度时要减1，不能直接返回upBound-center，这是最后一个回文串长度不是最长回文串长度
+    // return maxLength-1;
+    // 返回最长回文串
+    return s.substring((finalCenter-maxLength)/2, (finalCenter-maxLength)/2 + maxLength-1);
+}
+```
+:::caution 编程细节
+1. for循环i从1开始，到len-1结束
+2. 最长回文串长度是maxLength-1而不是maxLength
+3. 当expand[i]+i>upBound时是局部最长回文子串而不是全局回文子串，应该在每一次遍历时维护，而不是for退出后直接拿i当做最长回文子串中心
+4. while循环没有判断边界，最长回文中心是(finalCenter-maxLength)/2都是要靠initStr正确处理才能确保
+:::
+
+## 题目变形
+给定一个字符串s，请计算这个字符串中有多少个回文子字符串。具有不同开始位置或结束位置的子串，即使是由相同的字符组成，也会被视作不同的子串。
+
+### 思路分析
+回顾前面在遍历str时，得到了str上每个字符在i位置能够延伸的最大对称长度expand[i]，那么把所有expand[i]加起来就得到str所有回文子串的个数。可是又要怎么求s所有回文子串的个数呢？
+
+由于str是在s的基础上间隔字符插入'#'，可以这么理解：**对于s来说，str的回文子串'#b#'就是s的回文串'b'包了层皮，str的回文子串'#a#b#a'就是s的回文串'abc'包了层皮**，因此可以得到`s_expand[i]=str_expand[i]/2`。最后实现代码就很明了：
+```java
+public int manacher(char[] str, int len) {
+    int center = 0, radius = 0, ans = 0;
+    int[] radArray = new int[len];
+
+    for (int i = 1; i < len - 1; i++) {
+        radArray[i] = (center + radius > i) ? Math.min(radArray[2*center-i], center + radius - i) : 1;
+        while(str[i - radArray[i]] == str[i + radArray[i]]) {
+            ++radArray[i];
+        }
+        if(radArray[i] > radius) {
+            center = i;
+            radius = radArray[i];
+        }
+        ans += radArray[i]/2;
+    }
+    return ans;
+}
+```
+:::caution 注意
+严格来说，上述代码中计算得到radArray是不准确的(首尾元素都是0)，实际上应该为1，只不过因为0和1被2整除结果都是0，并不影响最终结果
+:::
