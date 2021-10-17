@@ -1,0 +1,111 @@
+---
+title: 每日算法题-前缀和
+author: 何轲
+author_title: Never settle down
+author_url: https://github.com/kayhaw
+author_image_url: https://avatars.githubusercontent.com/u/16892835?v=4
+tags: 
+  - Algorithm
+  - Prefix Sum
+description: 每日算法题-前缀和
+hide_table_of_contents: false
+---
+
+总结前缀和相关问题
+<!--truncate-->
+
+## 前缀和定义
+
+什么是前缀和？顾名思义，它表示数组array的前缀数组之和，即
+
+$$prefixSum[i]=\sum_{0}^iarray[i]$$
+
+当求出数组所有位置的前缀和之后，通过prefixSum[i]-prefixSum[j-1]即可快速得到区间[j,i]内元素之和，从而在O(1)时间内得到本来需要O(n)时间计算的值。换言之，使用前缀和的本质就是用空间换时间。
+
+## 一维数组前缀和
+
+[题目描述](https://leetcode-cn.com/problems/range-sum-query-immutable/)：给定一个整数数组nums，求出数组从索引i到j（i ≤ j）范围内元素的总和，包含i、j两点。
+
+先求出前缀和数组prefixSum，根据推导公式$sum[i,j]=prefixSum[j]-prefixSum[i-1]$即可求解，实现代码如下：
+
+```java
+public class NumArray {
+    private int[] prefixSum;
+    public NumArray(int[] nums) {
+        int len = nums.length;
+        prefixSum = new int[len+1];
+        for (int i = 0; i < len; i++) {
+            prefixSum[i+1] = prefixSum[i] + nums[i];
+        }
+    }
+
+    public int sumRange(int left, int right) {
+        return prefixSum[right+1] - prefixSum[left];
+    }
+}
+```
+
+## 二维数组前缀和
+
+[题目描述](https://leetcode-cn.com/problems/range-sum-query-2d-immutable/)：给定一个二维矩阵 matrix，实现如下方法：
+
+- NumMatrix(int[][] matrix) 给定整数矩阵 matrix 进行初始化
+- int sumRegion(int row1, int col1, int row2, int col2) 返回左上角 (row1, col1) 、右下角 (row2, col2) 的子矩阵的元素总和。
+长度
+
+解决这道题的思路还是前缀和，只不过从一维数组扩展到二维数组。对于二维数组，其前缀和prefixMatrix[i][j]定义公式如下，它表示从矩阵左上顶点[0,0]到[i,j]所围成的子矩阵内元素之和：
+
+$$prefixMatrix[i][j]=\sum_{0}^i\sum_{0}^jmatrix[i][j]$$
+
+求矩阵matrix对应的前缀和矩阵prefixMatrix相比于一维数组更加复杂，思路还是使用容斥原理，代码实现如下所示：
+
+```java {9-11}
+public NumMatrix(int[][] matrix) {
+    int row = matrix.length;
+    int col = matrix[0].length;
+
+    prefixMatrix = new int[row+1][col+1];
+
+    for (int i = 1; i < row + 1; i++) {
+        for (int j = 1; j < col + 1; j++) {
+            prefixMatrix[i][j] = 
+                    prefixMatrix[i-1][j] + prefixMatrix[i][j-1] 
+                    - prefixMatrix[i-1][j-1] + matrix[i-1][j-1];
+        }
+    }
+}
+```
+
+:::tip 编程提示
+
+- 和一维数组一样，新构造的前缀和矩阵在每个维度上的长度都是原来矩阵加1
+- 因此遍历prefixMatrix的两个下标从1开始，首行和首列元素默认为0
+- 注意计算公式不要写错
+:::
+
+接下来需要推导出子矩阵和sumMatrix[[m,n][x,y]]与prefixMatrix[i][j]之间的关系，其中[m,n]，[x,y]分别是子矩阵左上、右下顶点坐标。根据容斥原理，得到关系如下：
+
+$$
+sumMatrix[[m,n][x,y]] = prefixMatrix[x][y] \\
+                      - ( prefixMatrix[m-1][y] \\
+                      + prefixMatrix[x][n-1] \\
+                      - prefixMatrix[m-1][n-1])
+$$
+
+对应的代码实现为：
+
+```java
+public int sumRegion(int row1, int col1, int row2, int col2) {
+    return sumMatrix[row2+1][col2+1] - 
+           (sumMatrix[row1][col2+1] 
+           + sumMatrix[row2+1][col1] 
+           - sumMatrix[row1][col1]);
+}
+```
+
+## 总结
+
+使用前缀和的两个要点：
+
+1. 构造赋值前缀数组在维度上加1，方便在计算区间和时不用考虑边界值处理
+2. 注意计算区间和公式不要记错
