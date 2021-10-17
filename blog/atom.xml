@@ -2,11 +2,44 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://kayhaw.github.io/blog</id>
     <title>Kay Haw's Blog Blog</title>
-    <updated>2021-10-10T00:00:00.000Z</updated>
+    <updated>2021-10-17T00:00:00.000Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://kayhaw.github.io/blog"/>
     <subtitle>Kay Haw's Blog Blog</subtitle>
     <icon>https://kayhaw.github.io/img/favicon.ico</icon>
+    <entry>
+        <title type="html"><![CDATA[流源(SourceFlow)项目计划表]]></title>
+        <id>流源(SourceFlow)项目计划表</id>
+        <link href="https://kayhaw.github.io/blog/2021/10/17/SourceflowProject"/>
+        <updated>2021-10-17T00:00:00.000Z</updated>
+        <summary type="html"><![CDATA[流源项目计划表]]></summary>
+        <author>
+            <name>何轲</name>
+            <uri>https://github.com/kayhaw</uri>
+        </author>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[每日算法题-前缀和]]></title>
+        <id>每日算法题-前缀和</id>
+        <link href="https://kayhaw.github.io/blog/2021/10/16/PrefixSum"/>
+        <updated>2021-10-16T00:00:00.000Z</updated>
+        <summary type="html"><![CDATA[每日算法题-前缀和]]></summary>
+        <author>
+            <name>何轲</name>
+            <uri>https://github.com/kayhaw</uri>
+        </author>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[每日算法题-链表相关总结]]></title>
+        <id>每日算法题-链表相关总结</id>
+        <link href="https://kayhaw.github.io/blog/2021/10/13/LinkedListAlogrithms"/>
+        <updated>2021-10-13T00:00:00.000Z</updated>
+        <summary type="html"><![CDATA[每日算法题-链表相关总结]]></summary>
+        <author>
+            <name>何轲</name>
+            <uri>https://github.com/kayhaw</uri>
+        </author>
+    </entry>
     <entry>
         <title type="html"><![CDATA[每日算法题-字符串的排列]]></title>
         <id>每日算法题-字符串的排列</id>

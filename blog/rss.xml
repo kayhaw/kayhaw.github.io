@@ -4,9 +4,30 @@
         <title>Kay Haw's Blog Blog</title>
         <link>https://kayhaw.github.io/blog</link>
         <description>Kay Haw's Blog Blog</description>
-        <lastBuildDate>Sun, 10 Oct 2021 00:00:00 GMT</lastBuildDate>
+        <lastBuildDate>Sun, 17 Oct 2021 00:00:00 GMT</lastBuildDate>
         <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
         <generator>https://github.com/jpmonette/feed</generator>
+        <item>
+            <title><![CDATA[流源(SourceFlow)项目计划表]]></title>
+            <link>https://kayhaw.github.io/blog/2021/10/17/SourceflowProject</link>
+            <guid>流源(SourceFlow)项目计划表</guid>
+            <pubDate>Sun, 17 Oct 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[流源项目计划表]]></description>
+        </item>
+        <item>
+            <title><![CDATA[每日算法题-前缀和]]></title>
+            <link>https://kayhaw.github.io/blog/2021/10/16/PrefixSum</link>
+            <guid>每日算法题-前缀和</guid>
+            <pubDate>Sat, 16 Oct 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[每日算法题-前缀和]]></description>
+        </item>
+        <item>
+            <title><![CDATA[每日算法题-链表相关总结]]></title>
+            <link>https://kayhaw.github.io/blog/2021/10/13/LinkedListAlogrithms</link>
+            <guid>每日算法题-链表相关总结</guid>
+            <pubDate>Wed, 13 Oct 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[每日算法题-链表相关总结]]></description>
+        </item>
         <item>
             <title><![CDATA[每日算法题-字符串的排列]]></title>
             <link>https://kayhaw.github.io/blog/2021/10/10/CheckInclusion</link>
