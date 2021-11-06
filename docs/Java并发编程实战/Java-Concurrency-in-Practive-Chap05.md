@@ -230,3 +230,355 @@ Java 6新增了双端队列Deque（发音同deck）和BlockingDeque分别对Queu
 
 - 传递InterruptedException：不捕获异常\捕获后简单处理再次抛出
 - 恢复中断：调用interrupt方法恢复中断状态
+
+错误的处理方式是捕获但是不做任何响应，此时线程被中断的证据已经丢失。
+
+## 同步工具类
+
+同步工具类可以是任何一个对象，只要它根据自身状态来协调线程的控制流。除了阻塞队列外，Java类库还提供了其他同步工具类，以下逐一介绍。
+
+### 闭锁
+
+闭锁是一种同步工具类，当闭锁到达结束状态之前，所有等待该闭锁的线程被阻塞，当到达结束状态后，所有线程开始执行并且**闭锁状态不会再改变**。闭锁用于确保某些活动在其他活动完成后才继续执行。
+
+CountDownLatch是一种灵活的闭锁实现，其构造函数接收一个正整数作为，提供countDown方法将计数器减一，提供await方法阻塞线程直达计数器为0。如下示例代码使用CountDownLatch计算所有线程完成工作总时间：
+
+```java
+public class TestHarness {
+    public long timeTasks(int nThreads, final Runnable task)
+            throws InterruptedException {
+        final CountDownLatch startGate = new CountDownLatch(1);
+        final CountDownLatch endGate = new CountDownLatch(nThreads);
+
+        for (int i = 0; i < nThreads; i++) {
+            Thread t = new Thread() {
+                public void run() {
+                    try {
+                        startGate.await();
+                        try {
+                            task.run();
+                        } finally {
+                            endGate.countDown();
+                        }
+                    } catch (InterruptedException ignored) {
+                    }
+                }
+            };
+            t.start();
+        }
+
+        long start = System.nanoTime();
+        startGate.countDown();
+        endGate.await();
+        long end = System.nanoTime();
+        return end - start;
+    }
+}
+```
+
+这里使用了两个闭锁，分别表示起始门和结束门。起始门初始值为1，主线程将其减1，如此确保所有工作线程准备就绪后一同开始执行任务。结束门初始值为工作线程个数，工作线程结束后将其减1，如此确保最后一个工作线程结束后主线程结束。
+
+:::info 为什么要用起始门，一个结束门不就可以吗？
+为了确保所有工作线程“同时”开始执行，否则先start的线程先结束，可能导致最后统计时间偏大
+:::
+
+### FutureTask
+
+FutureTask也可作为一种闭锁实现，它是Callable计算结果的占位符。FutureTask有3中状态：等待执行、正在执行、运行完成，当进入完成状态后便永远停留在这个状态。
+
+FutureTask.get()方法用于获取结果，若任务完成则立即返回，否则get将阻塞直到任务完成或者抛出异常。如下代码所示，表示一个异步异步加载产品信息的任务。
+
+```java
+public class Preloader {
+    ProductInfo loadProductInfo() throws DataLoadException { return null; }
+
+    private final FutureTask<ProductInfo> future =
+        new FutureTask<ProductInfo>(new Callable<ProductInfo>() {
+            public ProductInfo call() throws DataLoadException {
+                return loadProductInfo();
+            }
+        });
+    private final Thread thread = new Thread(future);
+
+    public void start() { thread.start(); }
+
+    public ProductInfo get() throws DataLoadException, InterruptedException {
+        try {
+            return future.get();
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof DataLoadException)
+                throw (DataLoadException) cause;
+            else
+                throw LaunderThrowable.launderThrowable(cause);
+        }
+    }
+
+    interface ProductInfo {}
+}
+
+class DataLoadException extends Exception { }
+```
+
+为了避免在构造函数中调用start()方法，包装了start方法来调用线程。注意get方法抛出的异常都会被封装到一个ExecutionException中，需要根据情况分别处理。当异常时受检查异常时，重新抛出，否则使用LaunderThrowable.launderThrowable方法处理，代码如下所示。
+
+```java
+public class LaunderThrowable {
+
+    /**
+     * Coerce an unchecked Throwable to a RuntimeException
+     * <p/>
+     * If the Throwable is an Error, throw it; if it is a
+     * RuntimeException return it, otherwise throw IllegalStateException
+     */
+    public static RuntimeException launderThrowable(Throwable t) {
+        if (t instanceof RuntimeException)
+            return (RuntimeException) t;
+        else if (t instanceof Error)
+            throw (Error) t;
+        else
+            throw new IllegalStateException("Not unchecked", t);
+    }
+}
+```
+
+### 信号量
+
+信号量(Semaphore)用于控制访问某个特定资源的操作数量或者某个指定操作的数量，还可以用于实现资源池或者将容器变成有界阻塞容器。示例代码如下所示：
+
+```java
+public class BoundedHashSet <T> {
+    private final Set<T> set;
+    private final Semaphore sem;
+
+    public BoundedHashSet(int bound) {
+        this.set = Collections.synchronizedSet(new HashSet<T>());
+        sem = new Semaphore(bound);
+    }
+
+    public boolean add(T o) throws InterruptedException {
+        sem.acquire();
+        boolean wasAdded = false;
+        try {
+            wasAdded = set.add(o);
+            return wasAdded;
+        } finally {
+            if (!wasAdded)
+                sem.release();
+        }
+    }
+
+    public boolean remove(Object o) {
+        boolean wasRemoved = set.remove(o);
+        if (wasRemoved)
+            sem.release();
+        return wasRemoved;
+    }
+}
+```
+
+Semaphore构造方法传入一个正数作为初始许可证个数，提供方法release和acquire分别新增和减少一个许可证。当许可证个数为0时，acquire方法被阻塞。
+
+### 栅栏
+
+栅栏(Barrier)类似闭锁，它能阻塞一组线程直到某个事件发生。栅栏和闭锁的区别：
+
+1. 闭锁用于等待事件，栅栏用于等待其他线程
+2. 闭锁不可重置复用，栅栏可以使线程反复在栅栏位置汇集
+3. CountDownLatch是减1到0后同时执行，Barrier是加1到特定值后同时执行
+
+栅栏提供await方法将阻塞到所有线程都到达栅栏位置，此时栅栏打开，所有线程被释放，同时栅栏被重置供下次使用。如果await调用超时或者await阻塞的线程被中断，那么栅栏被认为打破，所有阻塞await调用抛出BrokenBarrierException。示例代码如下所示：
+
+```java
+public class CellularAutomata {
+    private final Board mainBoard;
+    private final CyclicBarrier barrier;
+    private final Worker[] workers;
+
+    public CellularAutomata(Board board) {
+        this.mainBoard = board;
+        int count = Runtime.getRuntime().availableProcessors();
+        this.barrier = new CyclicBarrier(count,
+                new Runnable() {
+                    public void run() {
+                        mainBoard.commitNewValues();
+                    }});
+        this.workers = new Worker[count];
+        for (int i = 0; i < count; i++)
+            workers[i] = new Worker(mainBoard.getSubBoard(count, i));
+    }
+
+    private class Worker implements Runnable {
+        private final Board board;
+
+        public Worker(Board board) { this.board = board; }
+        public void run() {
+            while (!board.hasConverged()) {
+                for (int x = 0; x < board.getMaxX(); x++)
+                    for (int y = 0; y < board.getMaxY(); y++)
+                        board.setNewValue(x, y, computeValue(x, y));
+                try {
+                    barrier.await();
+                } catch (InterruptedException ex) {
+                    return;
+                } catch (BrokenBarrierException ex) {
+                    return;
+                }
+            }
+        }
+
+        private int computeValue(int x, int y) {
+            // Compute the new value that goes in (x,y)
+            return 0;
+        }
+    }
+
+    public void start() {
+        for (int i = 0; i < workers.length; i++)
+            new Thread(workers[i]).start();
+        mainBoard.waitForConvergence();
+    }
+
+    interface Board {
+        int getMaxX();
+        int getMaxY();
+        int getValue(int x, int y);
+        int setNewValue(int x, int y, int value);
+        void commitNewValues();
+        boolean hasConverged();
+        void waitForConvergence();
+        Board getSubBoard(int numPartitions, int index);
+    }
+}
+```
+
+CellularAutomata用于模拟细胞增殖位置，它将问题分为N(=CPU个数)个子线程解决。当这N个子问题都完成计算后(到达栅栏位置)，由栅栏提交这些结果(由最后一个到达的子线程执行)，之后栅栏状态重置，进行下一轮计算。另一种简化形式的栅栏是Exchanger，它只有两个工作线程，用于安全地交换数据。
+
+## 构建高效且可伸缩的结果缓存
+
+作为一种空间换时间的策略，简单的缓存设计可能将性能瓶颈转为可伸缩性瓶颈。首先看一个使用HashMap缓存计算结果的示例：
+
+```java
+public class Memoizer1 <A, V> implements Computable<A, V> {
+    private final Map<A, V> cache = new HashMap<A, V>();
+    private final Computable<A, V> c;
+
+    public Memoizer1(Computable<A, V> c) { this.c = c; }
+
+    public synchronized V compute(A arg) throws InterruptedException {
+        V result = cache.get(arg);
+        if (result == null) {
+            result = c.compute(arg);
+            cache.put(arg, result);
+        }
+        return result;
+    }
+}
+
+interface Computable <A, V> {
+    V compute(A arg) throws InterruptedException;
+}
+
+class ExpensiveFunction implements Computable<String, BigInteger> {
+    public BigInteger compute(String arg) {
+        // after deep thought...
+        return new BigInteger(arg);
+    }
+}
+```
+
+缓存类Memoizer1实现Computable接口，调用compute方法时首先尝试在其内部HashMap中找到缓存结果，没有找到则计算并返回。由于HashMap不是线程安全的，这里对整个compute方法进行同步。结果是每次只能有一个线程执行compute方法，当某个线程compute执行时间过长时，使用缓存反而会导致总体计算时间增加。对此，改进措施是使用ConcurrentHashMap来代替HashMap，代码如下所示：
+
+```java
+public class Memoizer2 <A, V> implements Computable<A, V> {
+    private final Map<A, V> cache = new ConcurrentHashMap<A, V>();
+    private final Computable<A, V> c;
+
+    public Memoizer2(Computable<A, V> c) { this.c = c; }
+
+    public V compute(A arg) throws InterruptedException {
+        V result = cache.get(arg);
+        if (result == null) {
+            result = c.compute(arg);
+            cache.put(arg, result);
+        }
+        return result;
+    }
+}
+```
+
+使用ConcurrentHashMap提升了并发度，但是还存在缺陷——两个线程同时调用compute时会计算相同值，这违背了使用缓存的初衷。我们希望能通过某种方式表达线程A正在计算，线程B只需要等待A计算结束然后获取其结果，而FutureTask类恰好能满足这点：
+
+```java
+public class Memoizer3 <A, V> implements Computable<A, V> {
+    private final Map<A, Future<V>> cache = new ConcurrentHashMap<A, Future<V>>();
+    private final Computable<A, V> c;
+
+    public Memoizer2(Computable<A, V> c) { this.c = c; }
+
+    public V compute(A arg) throws InterruptedException {
+        Future<V> f = cache.get(arg);
+        if (f == null) {
+            Callable<V> eval = new Callable<V>() {
+                public V call() throws InterruptedException {
+                    return c.compute(arg);
+                }
+            };
+            FutureTask<V> ft = new FutureTask<V>(eval);
+            f = ft;
+            cache.put(arg, ft);
+            ft.run();           // 调用c.compute
+        }
+        try {
+            return f.get();
+        } catch (ExecutionException e) {
+            throw launderThrowable(e.getCause());
+        }
+    }
+}
+```
+
+相比于Memoizer2，Memoizer3中cache的put操作是异步的，不必等到compute执行完成。这大大减少了线程重复计算的概率，但是仍会发生，究其原因是复合操作(Put-If-Absent)并不是原子的，继续改进的compute代码如下所示：
+
+```java
+public V compute(final A arg) throws InterruptedException {
+    while (true) {
+        Future<V> f = cache.get(arg);
+        if (f == null) {
+            Callable<V> eval = new Callable<V>() {
+                public V call() throws InterruptedException {
+                    return c.compute(arg);
+                }
+            };
+            FutureTask<V> ft = new FutureTask<V>(eval);
+            f = cache.putIfAbsent(arg, ft);
+            if (f == null) { f = ft; ft.run(); }
+        }
+        try {
+            return f.get();
+        } catch (CancellationException e) {
+            cache.remove(arg, f);
+        } catch (ExecutionException e) {
+            throw LaunderThrowable.launderThrowable(e.getCause());
+        }
+    }
+}
+```
+
+使用putIfAbsent方法设置缓存，并且第二次判断f是否为null来防止其他线程已经提交了compute任务，杜绝了重复计算。另外，为了解决**缓存污染**的问题，当get方法发生异常时移除该计算任务缓存。
+
+## 总结
+
+以下是对前5章基础知识部分的概念和规则的总结：
+
+1. 可变状态至关重要，越少的可变状态越容易确保线程安全性
+2. 尽量将变量声明为final，除非它们可变
+3. 不可变对象一定是线程安全的
+4. 封装有助于管理复杂性
+5. 用锁保护可变变量
+6. **当保护同一个不变性条件的所有变量时，要使用同一个锁**
+7. **在执行复合操作时要持有锁**
+8. 多线程访问同一个可变变量，没有同步机制会出问题
+9. 不要故作聪明地推断不需要同步
+10. 在设计过程中考虑线程安全，或在文档中明确指出它不是线程安全的
+11. 将同步策略文档化
