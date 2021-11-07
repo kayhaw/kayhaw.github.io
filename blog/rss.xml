@@ -4,9 +4,16 @@
         <title>Kay Haw's Blog Blog</title>
         <link>https://kayhaw.github.io/blog</link>
         <description>Kay Haw's Blog Blog</description>
-        <lastBuildDate>Sun, 17 Oct 2021 00:00:00 GMT</lastBuildDate>
+        <lastBuildDate>Tue, 26 Oct 2021 00:00:00 GMT</lastBuildDate>
         <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
         <generator>https://github.com/jpmonette/feed</generator>
+        <item>
+            <title><![CDATA[MySQL基础知识总结(1)]]></title>
+            <link>https://kayhaw.github.io/blog/2021/10/26/MySQLSummary</link>
+            <guid>MySQL基础知识总结(1)</guid>
+            <pubDate>Tue, 26 Oct 2021 00:00:00 GMT</pubDate>
+            <description><![CDATA[MySQL基础知识总结(1)]]></description>
+        </item>
         <item>
             <title><![CDATA[流源(SourceFlow)项目计划表]]></title>
             <link>https://kayhaw.github.io/blog/2021/10/17/SourceflowProject</link>
