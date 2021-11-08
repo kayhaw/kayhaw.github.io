@@ -230,3 +230,216 @@ public class OutOfTime {
     }
 }
 ```
+
+## 找出可利用的并行性
+
+使用Executor需要将任务抽象为一个Runnable，然而并非所有任务边界都是显而易见，本节以一个渲染页面的程序为例展开讨论。该程序的功能是将HTML页面绘制到图像缓存中，假设HTML只包含标签本文、预定义大小的图片和URL。
+
+### 示例：串行的页面渲染器
+
+一种串行处理的方式是先绘制文本元素，期间为图片留出空间，处理完文本后下载图片再绘制，代码如下所示：
+
+```java
+public class SingleThreadRenderer {
+    void renderPage(CharSequence source) {
+        renderText(source);
+        List<ImageData> imageData = new ArrayList<ImageData>();
+        for (ImageInfo imageInfo : scanForImageInfo(source))
+            imageData.add(imageInfo.downloadImage());
+        for (ImageData data : imageData)
+            renderImage(data);
+    }
+}
+```
+
+串行处理的缺点在于下载图片时都在等待IO操作完成，CPU几乎未工作。为了获得更高的CPU利用率，应该将问题拆分为多个独立任务并发执行。
+
+### 携带任务结果Callable与Future
+
+相比于Runnable表示没有返回值的计算，Callable接口表示有返回值并且会抛出异常的计算(**Callable\<Void\>表示无返回值**)，而Future表示一个任务的生命周期，两者接口定义如下所示：
+
+```java
+public interface Callable<V> {
+    V call() throws Exception;
+}
+
+public interface Future<V> {
+    boolean cancel(boolean mayInterruptIfRunning);
+    boolean isCanceled();
+    boolean isDone();
+    V get() throws InterruptException, ExecutionException, CancelationException;
+    V get(long timeout, TimeUnit unit) throws InterruptException, ExecutionException, CancelationException;
+}
+```
+
+get方法行为取决于任务状态：
+
+- 任务完成，立即返回结果或者异常
+- 任务未完成，阻塞直到任务完成
+- 任务抛出异常，get将异常封装为ExecutionException重新抛出
+- 任务被取消，get抛出CancelationException异常
+
+ExecutorService接口的所有submit方法接收一个Callable/Runnable并返回一个Future，如下代码所示，ExecutorService使用newTaskFor生成Future对象，默认是FutureTask对象。
+
+```java
+// 为指定返回结果的Runnable生成FutureTask
+protected <T> RunnableFuture<T> newTaskFor(Runnable runnable, T value) {
+    return new FutureTask<T>(runnable, value);
+}
+// 为Callable生成FutureTask
+protected <T> RunnableFuture<T> newTaskFor(Callable<T> callable) {
+    return new FutureTask<T>(callable);
+}
+// 提交Runnable任务
+public Future<?> submit(Runnable task) {
+    if (task == null) throw new NullPointerException();
+    RunnableFuture<Void> ftask = newTaskFor(task, null);
+    execute(ftask);
+    return ftask;
+}
+// 提交指定返回值的Runnable任务
+public <T> Future<T> submit(Runnable task, T result) {
+    if (task == null) throw new NullPointerException();
+    RunnableFuture<T> ftask = newTaskFor(task, result);
+    execute(ftask);
+    return ftask;
+}
+// 提交Callable任务
+public <T> Future<T> submit(Callable<T> task) {
+    if (task == null) throw new NullPointerException();
+    RunnableFuture<T> ftask = newTaskFor(task);
+    execute(ftask);
+    return ftask;
+}
+```
+
+### 示例：使用Future实现页面渲染器
+
+基于Future和Callable，将文本渲染和图片下载分为两个子任务，实现代码如下：
+
+```java
+public abstract class FutureRenderer {
+    private final ExecutorService executor = Executors.newCachedThreadPool();
+
+    void renderPage(CharSequence source) {
+        final List<ImageInfo> imageInfos = scanForImageInfo(source);
+        Callable<List<ImageData>> task =
+                new Callable<List<ImageData>>() {
+                    public List<ImageData> call() {
+                        List<ImageData> result = new ArrayList<ImageData>();
+                        for (ImageInfo imageInfo : imageInfos)
+                            result.add(imageInfo.downloadImage());
+                        return result;
+                    }
+                };
+
+        Future<List<ImageData>> future = executor.submit(task);
+        renderText(source);
+
+        try {
+            List<ImageData> imageData = future.get();
+            for (ImageData data : imageData)
+                renderImage(data);
+        } catch (InterruptedException e) {
+            // Re-assert the thread's interrupted status
+            Thread.currentThread().interrupt();
+            // We don't need the result, so cancel the task too
+            future.cancel(true);
+        } catch (ExecutionException e) {
+            throw launderThrowable(e.getCause());
+        }
+    }
+}
+```
+
+### 在异构任务并行化中存在的局限
+
+通过对异构任务进行并行化获得的性能提升是有限的：
+
+1. 异构任务不能均匀分配给线程
+2. 任务负载不同，导致提升不显著
+3. 分解任务需要开销
+
+:::tip
+只有当**大量互相独立且同构**的任务可以并发处理时，才能体现出将程序负载分配到多个任务中带来的性能提升
+:::
+
+### CompletionService:Executor与BlockingQueue
+
+当向Executor提交了**一组**计算任务后，为了获得结果，一种做法是保存每个任务的Future，然后反复调用get方法，将timeout参数设置为0，轮询判断任务是否完成，一种更好的方案是用CompletionService。
+
+CompletionService接口融合了Executor和BlockingQueue，提交Callable任务后使用take和poll操作来获取结果，ExecutorCompletionService实现了CompletionService。
+
+### 示例：使用CompletionService实现页面渲染器
+
+通过CompletionService，为每张图片的下载创建一个独立任务，从而将之前多张图片的串行下载改为并行的。之后，使用take方法让每张图片在下载完毕后立即能够渲染出来，进一步减少了响应时间：
+
+```java
+public abstract class Renderer {
+    private final ExecutorService executor;
+
+    Renderer(ExecutorService executor) {
+        this.executor = executor;
+    }
+
+    void renderPage(CharSequence source) {
+        final List<ImageInfo> info = scanForImageInfo(source);
+        CompletionService<ImageData> completionService =
+                new ExecutorCompletionService<ImageData>(executor);
+        for (final ImageInfo imageInfo : info)
+            completionService.submit(new Callable<ImageData>() {
+                public ImageData call() {
+                    return imageInfo.downloadImage();
+                }
+            });
+
+        renderText(source);
+
+        try {
+            for (int t = 0, n = info.size(); t < n; t++) {
+                Future<ImageData> f = completionService.take();
+                ImageData imageData = f.get();
+                renderImage(imageData);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            throw launderThrowable(e.getCause());
+        }
+    }
+}
+```
+
+此外，多个ExecutorCompletionService可以共享一个Executor，因此可以创建一个对特定计算私有，又能共享一个功能Executor的ExecutorCompletionService。此时ExecutorCompletionService相当于一组计算的句柄，可以通过记录提交任务数获得已完成任务数。
+
+### 为任务设置时限
+
+有些时候任务可能无法完成，此时不再需要结果，比如网站加载广告过慢就显示一个默认的，可以通过带有指定超时时间的get方法实现：
+
+```java
+public class RenderWithTimeBudget {
+    private static final Ad DEFAULT_AD = new Ad();
+    private static final long TIME_BUDGET = 1000;
+    private static final ExecutorService exec = Executors.newCachedThreadPool();
+
+    Page renderPageWithAd() throws InterruptedException {
+        long endNanos = System.nanoTime() + TIME_BUDGET;
+        Future<Ad> f = exec.submit(new FetchAdTask());
+        // Render the page while waiting for the ad
+        Page page = renderPageBody();
+        Ad ad;
+        try {
+            // Only wait for the remaining time budget
+            long timeLeft = endNanos - System.nanoTime();
+            ad = f.get(timeLeft, NANOSECONDS);
+        } catch (ExecutionException e) {
+            ad = DEFAULT_AD;
+        } catch (TimeoutException e) {
+            ad = DEFAULT_AD;
+            f.cancel(true);
+        }
+        page.setAd(ad);
+        return page;
+    }
+}
+```
