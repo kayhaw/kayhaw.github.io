@@ -443,3 +443,48 @@ public class RenderWithTimeBudget {
     }
 }
 ```
+
+### 示例：旅行预订门户网站
+
+假设有一个旅行预订门户网站，用户输入日期和其他要求，网站给出多条航线、旅店等服务商的报价。可以将获取一个公司的报价视为一个任务，将n个任务提交到线程池获得n个Future，然后使用限时的get方法串行获取结果。这种思路很简单，但还可以使用更简单的invokeAll方法：
+
+```java
+public class TimeBudget {
+    private static ExecutorService exec = Executors.newCachedThreadPool();
+
+    public List<TravelQuote> getRankedTravelQuotes(TravelInfo travelInfo, Set<TravelCompany> companies,
+                                                   Comparator<TravelQuote> ranking, long time, TimeUnit unit)
+            throws InterruptedException {
+        List<QuoteTask> tasks = new ArrayList<QuoteTask>();
+        for (TravelCompany company : companies)
+            tasks.add(new QuoteTask(company, travelInfo));
+
+        List<Future<TravelQuote>> futures = exec.invokeAll(tasks, time, unit);
+
+        List<TravelQuote> quotes =
+                new ArrayList<TravelQuote>(tasks.size());
+        Iterator<QuoteTask> taskIter = tasks.iterator();
+        for (Future<TravelQuote> f : futures) {
+            QuoteTask task = taskIter.next();
+            try {
+                quotes.add(f.get());
+            } catch (ExecutionException e) {
+                quotes.add(task.getFailureQuote(e.getCause()));
+            } catch (CancellationException e) {
+                quotes.add(task.getTimeoutQuote(e));
+            }
+        }
+
+        Collections.sort(quotes, ranking);
+        return quotes;
+    }
+}
+```
+
+invokeAll接收一组任务，并返回一组Future。所有任务执行完成、调用线程被中断、超过指定时限时invokeAll返回，超过时限后所有为完成任务将会取消，客户端通过get或者isCancelled来判断具体情况。
+
+## 总结
+
+- 将程序分解为独立同构的大量任务，使用并发才能真正提高程序性能
+- 分解程序的第一步是找到任务的边界
+- Executor框架的意义是将任务提交与执行策略解耦，当需要创建线程运行任务时可以考虑Executor
