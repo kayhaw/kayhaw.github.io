@@ -167,3 +167,224 @@ public class NoncancelableTask {
     }
 }
 ```
+
+### 示例：计时运行
+
+回顾PrimeGenerator的代码，静态方法aSecondOfPrimes启动一个PrimeGenertor线程，运行1秒后停止，该代码存在的问题是PrimeGenerator运行抛出的异常会被忽略。为了解决异常未捕获的问题，如下代码给出了在指定时间内运行任意一个runnable的示例：
+
+```java
+public class TimedRun1 {
+    private static final ScheduledExecutorService cancelExec = Executors.newScheduledThreadPool(1);
+
+    public static void timedRun(Runnable r, long timeout, TimeUnit unit) {
+        final Thread taskThread = Thread.currentThread();
+        // 设置一个取消定时任务
+        cancelExec.schedule(new Runnable() {
+            public void run() {
+                taskThread.interrupt();
+            }
+        }, timeout, unit);
+        r.run();
+    }
+}
+```
+
+该示例直接执行任务r，并设置了一个取消任务，该取消任务在指定时间后中断任务执行。在满足定时运行的要求，任务抛出的异常可以被timedRun方法捕获。这种方法十分简单，但是破坏了规则：**在中断线程前，应该了解它的中断策略**。如果r.run()在timeout前就完成，那么取消任务将会在timedRun返回之后触发，这种行为的后果是未知的(尽管用schedule方法返回的ScheduleFuture来取消任务，但是过于复杂)。并且如果r不响应中断，那timedRun在r结束后返回，此时可能已经超时或者为超时，没有达到限时执行的要求。
+
+如下代码解决了aSecondOfPrimes的异常处理问题和TimedRun1的问题。执行任务task不响应中断，并将其可能遇到的异常保存在t中，timedRun执行限时的task.join(timeout)方法，因此主线程会定时阻塞到task结束，这里有两种情况：
+
+1. task在timeout内结束(正常、异常)，通过rethrow方法重新抛出可能遇到的异常
+2. task在timeout内还未结束，此时由cancelExec调用task.interrupt()来使其退出
+
+该方案存在的问题：主线程执行task.rethrow()时，不能确定task是正常退出而返回还是因为join超时而返回。
+
+```java
+public class TimedRun2 {
+    private static final ScheduledExecutorService cancelExec = newScheduledThreadPool(1);
+
+    public static void timedRun(final Runnable r, long timeout, TimeUnit unit) 
+    throws InterruptedException {
+        class RethrowableTask implements Runnable {
+            private volatile Throwable t;
+
+            public void run() {
+                try {
+                    r.run();
+                } catch (Throwable t) {
+                    this.t = t;
+                }
+            }
+
+            void rethrow() {
+                if (t != null)
+                    throw launderThrowable(t);
+            }
+        }
+
+        RethrowableTask task = new RethrowableTask();
+        final Thread taskThread = new Thread(task);
+        taskThread.start();
+        cancelExec.schedule(new Runnable() {
+            public void run() {
+                taskThread.interrupt();
+            }
+        }, timeout, unit);
+        taskThread.join(unit.toMillis(timeout));
+        task.rethrow();
+    }
+}
+```
+
+### 通过Future来实现取消
+
+实际上Future已经提供了取消任务的方法cancel，通过Future来取消任务的示例代码如下所示：
+
+```java
+public class TimedRun {
+    private static final ExecutorService taskExec = Executors.newCachedThreadPool();
+
+    public static void timedRun(Runnable r, long timeout, TimeUnit unit)
+            throws InterruptedException {
+        Future<?> task = taskExec.submit(r);
+        try {
+            task.get(timeout, unit);
+        } catch (TimeoutException e) {
+            // 运行超时，到finally块执行任务取消
+        } catch (ExecutionException e) {
+            // 运行未超时中遇到异常，重新抛出异常
+            throw launderThrowable(e.getCause());
+        } finally {
+            // 调用cancel，即使任务已经结束也不会有任务影响
+            // 如果任务还在运行，将会被中断
+            task.cancel(true);
+        }
+    }
+}
+```
+
+cancel方法接受boolean类型参数mayInterruptIfRunning，为true表示中断正在运行的线程，为false表示不要执行还未运行的线程。
+
+:::tip
+当Future.get()抛出InterruptedException或者TimeoutException时，若不再需要结果可以调用Future.cancel来取消任务
+:::
+
+### 处理不可中断的阻塞
+
+在Java库中，许多可阻塞的方法都是通过提前返回或者抛出InterruptedException来响应中断请求，但是也存在不可响应中断的阻塞方法：
+
+- Java.io包中的同步Socket IO
+- Java.io包中的同步IO
+- Selector的异步IO
+- 获取某个锁
+
+如下代码给出如何封装非标准的取消操作，ReaderThread重写了Thread.interrupt()方法，通过关闭socket来使得执行read或者write的方法抛出SocketException。
+
+```java
+public class ReaderThread extends Thread {
+    private static final int BUFSZ = 512;
+    private final Socket socket;
+    private final InputStream in;
+
+    public ReaderThread(Socket socket) throws IOException {
+        this.socket = socket;
+        this.in = socket.getInputStream();
+    }
+
+    public void interrupt() {
+        try {
+            socket.close();
+        } catch (IOException ignored) {
+        } finally {
+            super.interrupt();
+        }
+    }
+
+    public void run() {
+        try {
+            byte[] buf = new byte[BUFSZ];
+            while (true) {
+                int count = in.read(buf);
+                if (count < 0)
+                    break;
+                else if (count > 0)
+                    processBuffer(buf, count);
+            }
+        } catch (IOException e) { /* Allow thread to exit */ }
+    }
+
+    public void processBuffer(byte[] buf, int count) {}
+}
+```
+
+:::tip
+重写线程的interrupt方法，关闭IO流使阻塞方法抛出异常，同时调用super.interrupt方法保证原来的中断逻辑。
+:::
+
+### 用newTaskFor来封装非标准的取消
+
+还可以通过重写newTaskFor来进一步封装上面的非标准取消代码。当把一个Callable通过submit方法提交给ExecutorService时，submit方法通过调用newTaskFor方法得到一个Future(提供取消方法cancel)，并将其返回。因此，可以通过定制Future改变Future.cancel的行为，代码如下所示：
+
+<details>
+<summary>通过newTaskFor封装非标准的取消操作</summary>
+
+```java
+public abstract class SocketUsingTask <T> implements CancellableTask<T> {
+    private Socket socket;
+
+    protected synchronized void setSocket(Socket s) { socket = s; }
+
+    public synchronized void cancel() {
+        try {
+            if (socket != null)
+                socket.close();
+        } catch (IOException ignored) {
+        }
+    }
+
+    public RunnableFuture<T> newTask() {
+        return new FutureTask<T>(this) {
+            public boolean cancel(boolean mayInterruptIfRunning) {
+                try {
+                    SocketUsingTask.this.cancel();
+                } finally {
+                    return super.cancel(mayInterruptIfRunning);
+                }
+            }
+        };
+    }
+}
+
+interface CancellableTask <T> extends Callable<T> {
+    void cancel();
+    RunnableFuture<T> newTask();
+}
+
+class CancellingExecutor extends ThreadPoolExecutor {
+    public CancellingExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit, BlockingQueue<Runnable> workQueue) {
+        super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue);
+    }
+
+    public CancellingExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit, BlockingQueue<Runnable> workQueue, ThreadFactory threadFactory) {
+        super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory);
+    }
+
+    public CancellingExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit, BlockingQueue<Runnable> workQueue, RejectedExecutionHandler handler) {
+        super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, handler);
+    }
+
+    public CancellingExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit, BlockingQueue<Runnable> workQueue, ThreadFactory threadFactory, RejectedExecutionHandler handler) {
+        super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, handler);
+    }
+
+    protected <T> RunnableFuture<T> newTaskFor(Callable<T> callable) {
+        if (callable instanceof CancellableTask)
+            return ((CancellableTask<T>) callable).newTask();
+        else
+            return super.newTaskFor(callable);
+    }
+}
+```
+
+</details>
+
+SocketUsingTask实现了CancellableTask接口，并重写了Future.cancel方法来关闭socket和调用super.cancel。通过调用SocketUsingTask的cancel方法同时关闭底层socket并且中断线程。
