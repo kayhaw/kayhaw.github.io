@@ -58,3 +58,45 @@ public class ThreadDeadlock {
 - $\frac{W}{C}$：等待时间/计算时间
 
 要达到目标利用率，线程池的大小应设置为：$$N_{threads}=N_{cpu}*U_{cpu}*(1+\frac{W}{C})$$，其中CPU数量可以通过`Runtime.getRuntime().availableProcessors()`得到。CPU周期并不影响线程池大小的唯一因素，例如上节提到的JDB连接池。
+
+## 配置ThreadPoolExecutor
+
+ThreadPoolExecutor构造器提供了7个参数，通过这些参数来定制化ThreadPoolExecutor：
+
+```java
+public ThreadPoolExecutor(int corePoolSize,
+                          int maximumPoolSize,
+                          long keepAliveTime,
+                          TimeUnit unit,
+                          BlockingQueue<Runnable> workQueue,
+                          ThreadFactory threadFactory,
+                          RejectedExecutionHandler handler)
+```
+
+### 线程的创建与销毁
+
+基本大小(corePoolSize)是线程池在没有任务执行时的大小，最大大小(maximumPoolSize)是同时活动线程数量的上限。如果某个线程的空闲时间超过keepAliveTime，它将被标记为可回收的，并且线程大小超过基本大小时，线程将会被终止。线程池各个工厂方法配置的策略：
+
+- newFixedThreadPool：基本大小=最大大小=传入参数值，keepAliveTime=0，无界队列
+- newCachedThreadPool：基本大小=0，最大大小=Integer.MAX_VALUE，超时时间=60s，SynchronousQueue
+- newSingleThreadPool：基本大小=最大大小=1，keepAliveTime=0，无界队列
+- newScheduledThreadPool：基本大小=给定值，最大大小=Integer.MAX_VALUE，keepAliveTime=0，DelayedWorkQueue
+
+### 管理队列任务
+
+线程池通过阻塞队列workQueue保存等待执行的任务，可分为3类：无界队列、有界队列和同步移交(synchronous handoff)。newFixedThreadPool和newSingleThreadExecutor默认使用大小为Integer.MAX_VALUE的LinkedBlockingQueue(无界队列)，为了避免资源耗尽，应该使用有界队列(ArrayBlockingQueue、有界LinkedBlockingQueue、PriorityBlockingQueue)，并且注意队列大小和线程池大小同时调节。
+
+对于非常大或者无界的线程池，使用SynchronousQueue来避免任务排队，它并不是真正的队列，而是一种在线程之间移交的机制。只有当线程池是无界的或者可以拒绝任务时，SynchronousQueue才有价值，在newCachedThreadPool就使用到了它。
+
+:::caution
+只有当线程互相独立时，为线程池或工作队列设置界限才是合理的，否则会出现线程饥饿死锁问题
+:::
+
+### 饱和策略
+
+当有界队列被填满后，由饱和策略handler来处理提交线程。Java类库实现的饱和策略有：
+
+1. AbortPolicy：拒绝任务，抛出未检查的RejectedException
+2. DiscardPolicy：悄咪咪地抛弃任务
+3. DiscardOldestPolicy：抛弃下一个将被执行任务，然后重新提交新任务，避免和优先级队列一同使用
+4. CallerRunsPolicy：将任务回退给调用者
