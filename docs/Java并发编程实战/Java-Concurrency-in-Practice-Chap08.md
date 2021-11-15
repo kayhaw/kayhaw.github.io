@@ -100,3 +100,138 @@ public ThreadPoolExecutor(int corePoolSize,
 2. DiscardPolicy：悄咪咪地抛弃任务
 3. DiscardOldestPolicy：抛弃下一个将被执行任务，然后重新提交新任务，避免和优先级队列一同使用
 4. CallerRunsPolicy：将任务回退给调用者
+
+除了使用现有的饱和策略外，还可以通过Semaphore来限制任务的提交，如下代码所示：
+
+```java
+public class BoundedExecutor {
+    private final Executor exec;
+    private final Semaphore semaphore;
+
+    public BoundedExecutor(Executor exec, int bound) {
+        this.exec = exec;
+        this.semaphore = new Semaphore(bound);
+    }
+
+    public void submitTask(final Runnable command)
+            throws InterruptedException {
+        semaphore.acquire();
+        try {
+            exec.execute(new Runnable() {
+                public void run() {
+                    try {
+                        command.run();
+                    } finally {
+                        semaphore.release();
+                    }
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            semaphore.release();
+        }
+    }
+}
+```
+
+BoundExecutor使用无界队列，并设置信号量上界为线程池大小加上可排队任务数量。
+
+### 线程工厂
+
+线程池通过线程工厂来创建线程，Executors指定的DefaultThreadFactory实现了ThreadFactory接口，它返回一个新的非守护线程，并没有包含其他特殊配置。
+
+```java
+// 线程工厂接口定义
+public interface ThreadFactory {
+    Thread newThread(Runnable r);
+}
+// Executors的静态内部类DefaultThreadFactory
+static class DefaultThreadFactory implements ThreadFactory {
+    private static final AtomicInteger poolNumber = new AtomicInteger(1);
+    private final ThreadGroup group;
+    private final AtomicInteger threadNumber = new AtomicInteger(1);
+    private final String namePrefix;
+
+    DefaultThreadFactory() {
+        SecurityManager s = System.getSecurityManager();
+        group = (s != null) ? s.getThreadGroup() :
+                                Thread.currentThread().getThreadGroup();
+        namePrefix = "pool-" +
+                        poolNumber.getAndIncrement() +
+                        "-thread-";
+    }
+
+    public Thread newThread(Runnable r) {
+        Thread t = new Thread(group, r,
+                                namePrefix + threadNumber.getAndIncrement(),
+                                0);
+        if (t.isDaemon())
+            t.setDaemon(false);
+        if (t.getPriority() != Thread.NORM_PRIORITY)
+            t.setPriority(Thread.NORM_PRIORITY);
+        return t;
+    }
+}
+```
+
+在许多情况下需要定制线程工厂，比如：定制UncaughtExceptionHandler、设置优先级、设置线程名称等。如下所示代码给出了一个示例：
+
+```java
+public class MyThreadFactory implements ThreadFactory {
+    private final String poolName;
+
+    public MyThreadFactory(String poolName) { this.poolName = poolName; }
+
+    public Thread newThread(Runnable runnable) { return new MyAppThread(runnable, poolName);}
+}
+
+public class MyAppThread extends Thread {
+    public static final String DEFAULT_NAME = "MyAppThread";
+    private static volatile boolean debugLifecycle = false;
+    private static final AtomicInteger created = new AtomicInteger();
+    private static final AtomicInteger alive = new AtomicInteger();
+    private static final Logger log = Logger.getAnonymousLogger();
+
+    public MyAppThread(Runnable r) {
+        this(r, DEFAULT_NAME);
+    }
+
+    public MyAppThread(Runnable runnable, String name) {
+        super(runnable, name + "-" + created.incrementAndGet());
+        setUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            public void uncaughtException(Thread t, Throwable e) {
+                log.log(Level.SEVERE, "UNCAUGHT in thread " + t.getName(), e);
+            }
+        });
+    }
+
+    public void run() {
+        // Copy debug flag to ensure consistent value throughout.
+        boolean debug = debugLifecycle;
+        if (debug) log.log(Level.FINE, "Created " + getName());
+        try {
+            alive.incrementAndGet();
+            super.run();
+        } finally {
+            alive.decrementAndGet();
+            if (debug) log.log(Level.FINE, "Exiting " + getName());
+        }
+    }
+    // ... 一些getter和setter
+}
+```
+
+MyAppThread可以定制线程名称便于区分，维护创建线程、存活线程个数等统计信息。此外，若需要利用安全策略控制对代码库的访问权限，还可以通过Executors的PrivilegedThreadFactory来定制线程工厂。
+
+### 构造后定制ThreadPoolExecutor
+
+在调用完ThreadPoolExecutor构造函数后，仍可以通过setter修改构造参数值。除了newSingleThreadExecutor外，Executors的其他工厂方法都可以将返回对象转为ThreadPoolExecutor来修改配置：
+
+```java
+ExecutorService exec = Executors.newCachedThreadPool();
+if(exec instanceof ThreadPoolExecutor)
+    ((ThreadPoolExecutor) exec).setCorePoolSize(10);
+else
+    throw new AssertionError("Oops, bad assumption");
+```
+
+Executors还提供静态方法unconfigurableExecutorService，将ExecutorService包装成不可修改配置的DelegatedExecutorService。由于newSingleThreadExecutor返回的DelegatedScheduledExecutorService对象继承于DelegatedExecutorService，因此它是不可修改的。
