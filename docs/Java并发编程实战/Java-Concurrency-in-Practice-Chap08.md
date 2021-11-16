@@ -235,3 +235,290 @@ else
 ```
 
 Executors还提供静态方法unconfigurableExecutorService，将ExecutorService包装成不可修改配置的DelegatedExecutorService。由于newSingleThreadExecutor返回的DelegatedScheduledExecutorService对象继承于DelegatedExecutorService，因此它是不可修改的。
+
+## 扩展ThreadPoolExecutor
+
+ThreadPoolExecutor的扩展通过在子类重写beforeExecute、afterExecute和terminated实现。如果任务执行完成或者抛出异常，afterExecute仍会执行(任务抛出错误除外)，当beforeExecute执行抛出RuntimeException，则任务和afterExecute都不会执行。线程池完成关闭后调用terminated方法，即所有任务完成并且工作线程已经关闭后，terminated方法可以用于释放Executor中分配的资源。
+
+如下所示代码通过自定义线程池，添加日志记录和统计信息收集。beforeExecute方法将任务开始时间保存在ThreadLocal中，由afterExecute方法读取来计算任务运行时间，并通过AtomicLong来统计已处理任务和总处理时间：
+
+```java
+public class TimingThreadPool extends ThreadPoolExecutor {
+
+    public TimingThreadPool() {
+        super(1, 1, 0L, TimeUnit.SECONDS, null);
+    }
+
+    private final ThreadLocal<Long> startTime = new ThreadLocal<Long>();
+    private final Logger log = Logger.getLogger("TimingThreadPool");
+    private final AtomicLong numTasks = new AtomicLong();
+    private final AtomicLong totalTime = new AtomicLong();
+
+    protected void beforeExecute(Thread t, Runnable r) {
+        super.beforeExecute(t, r);
+        log.fine(String.format("Thread %s: start %s", t, r));
+        startTime.set(System.nanoTime());
+    }
+
+    protected void afterExecute(Runnable r, Throwable t) {
+        try {
+            long endTime = System.nanoTime();
+            long taskTime = endTime - startTime.get();
+            numTasks.incrementAndGet();
+            totalTime.addAndGet(taskTime);
+            log.fine(String.format("Thread %s: end %s, time=%dns",
+                    t, r, taskTime));
+        } finally {
+            super.afterExecute(r, t);
+        }
+    }
+
+    protected void terminated() {
+        try {
+            log.info(String.format("Terminated: avg time=%dns",
+                    totalTime.get() / numTasks.get()));
+        } finally {
+            super.terminated();
+        }
+    }
+}
+```
+
+## 递归算法的并行化
+
+当串行循环中的各个迭代操作之间彼此**独立**，并且每个迭代操作工作量大于管理新任务的，此时该串行循环就适合并行化，例如第6章中的Renderer。在一些递归设计中同样可以使用相同方法，如下代码所示：
+
+```java
+public <T> void sequentialRecursive(List<Node<T>> nodes,
+                                        Collection<T> results) {
+    for (Node<T> n : nodes) {
+        results.add(n.compute());
+        sequentialRecursive(n.getChildren(), results);
+    }
+}
+
+public <T> void parallelRecursive(final Executor exec,
+                                    List<Node<T>> nodes,
+                                    final Collection<T> results) {
+    for (final Node<T> n : nodes) {
+        exec.execute(new Runnable() {
+            public void run() {
+                results.add(n.compute());
+            }
+        });
+        parallelRecursive(exec, n.getChildren(), results);
+    }
+}
+```
+
+由于每个迭代操作不依赖后续递归迭代的结果，因此可以并行化。为了获取最终结果，通过shutdown、awaitTermination方法实现，代码如下所示：
+
+```java
+public <T> Collection<T> getParallelResults(List<Node<T>> nodes)
+        throws InterruptedException {
+    ExecutorService exec = Executors.newCachedThreadPool();
+    Queue<T> resultQueue = new ConcurrentLinkedQueue<T>();
+    parallelRecursive(exec, nodes, resultQueue);
+    exec.shutdown();        // 发出关闭执行，并无限期等待所有任务结束
+    exec.awaitTermination(Long.MAX_VALUE, TimeUnit.SECONDS);
+    return resultQueue;
+}
+```
+
+### 示例：谜题框架
+
+串行递归并行化的一项重要应用就是解决这样一些谜题：找出一系列操作从初始状态转换到目标状态。问题定义为：一个初始位置，一个目标位置以及判断是否有效移动的规则集(包含指定位置处的合法移动以及每次移动的结果位置)。以“搬箱子”
+
+```java
+public interface Puzzle <P, M> {
+    P initialPosition();
+
+    boolean isGoal(P position);
+
+    Set<M> legalMoves(P position);
+
+    P move(P position, M move);
+}
+
+public class PuzzleNode <P, M> {
+    final P pos;
+    final M move;
+    final PuzzleNode<P, M> prev;
+
+    public PuzzleNode(P pos, M move, PuzzleNode<P, M> prev) {
+        this.pos = pos;
+        this.move = move;
+        this.prev = prev;
+    }
+    // 将之前所有移动操作作为列表返回
+    List<M> asMoveList() {
+        List<M> solution = new LinkedList<M>();
+        for (PuzzleNode<P, M> n = this; n.move != null; n = n.prev)
+            solution.add(0, n.move);
+        return solution;
+    }
+}
+```
+
+以下search方法给出谜题框架的串行化解决方案，它通过深度优先搜索找到解决方案(不一定是最优方案)。
+
+```java
+public class SequentialPuzzleSolver <P, M> {
+    private final Puzzle<P, M> puzzle;
+    private final Set<P> seen = new HashSet<P>();
+
+    public SequentialPuzzleSolver(Puzzle<P, M> puzzle) {
+        this.puzzle = puzzle;
+    }
+
+    public List<M> solve() {
+        P pos = puzzle.initialPosition();
+        return search(new PuzzleNode<P, M>(pos, null, null));
+    }
+
+    private List<M> search(PuzzleNode<P, M> node) {
+        if (!seen.contains(node.pos)) {
+            seen.add(node.pos);
+            if (puzzle.isGoal(node.pos))
+                return node.asMoveList();
+            for (M move : puzzle.legalMoves(node.pos)) {
+                P pos = puzzle.move(node.pos, move);
+                PuzzleNode<P, M> child = new PuzzleNode<P, M>(pos, move, node);
+                List<M> result = search(child);
+                if (result != null)
+                    return result;
+            }
+        }
+        return null;
+    }
+}
+```
+
+如下代码所示给出并发的谜题解答器。在串行版本中通过Set来保存已经搜索过的位置，避免无限循环，在并发版本中使用ConcurrentHashMap来替代，因为要确保Put-If-Absent操作线程安全性。
+
+```java
+public class ConcurrentPuzzleSolver <P, M> {
+    private final Puzzle<P, M> puzzle;
+    private final ExecutorService exec;
+    private final ConcurrentMap<P, Boolean> seen;
+    protected final ValueLatch<PuzzleNode<P, M>> solution = new ValueLatch<PuzzleNode<P, M>>();
+
+    public ConcurrentPuzzleSolver(Puzzle<P, M> puzzle) {
+        this.puzzle = puzzle;
+        this.exec = initThreadPool();
+        this.seen = new ConcurrentHashMap<P, Boolean>();
+        if (exec instanceof ThreadPoolExecutor) {
+            ThreadPoolExecutor tpe = (ThreadPoolExecutor) exec;
+            tpe.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardPolicy());
+        }
+    }
+
+    private ExecutorService initThreadPool() {
+        return Executors.newCachedThreadPool();
+    }
+
+    public List<M> solve() throws InterruptedException {
+        try {
+            P p = puzzle.initialPosition();
+            exec.execute(newTask(p, null, null));
+            // getValue阻塞直到找到答案
+            PuzzleNode<P, M> solnPuzzleNode = solution.getValue();
+            return (solnPuzzleNode == null) ? null : solnPuzzleNode.asMoveList();
+        } finally {
+            // 某个线程找到答案后又getValue放行，此时可以关闭线程池
+            exec.shutdown();
+        }
+    }
+
+    protected Runnable newTask(P p, M m, PuzzleNode<P, M> n) {
+        return new SolverTask(p, m, n);
+    }
+
+    protected class SolverTask extends PuzzleNode<P, M> implements Runnable {
+        SolverTask(P pos, M move, PuzzleNode<P, M> prev) {
+            super(pos, move, prev);
+        }
+
+        public void run() {
+            if (solution.isSet()
+                    || seen.putIfAbsent(pos, true) != null)
+                return; // 找到答案或者遍历过该位置
+            if (puzzle.isGoal(pos))
+                solution.setValue(this);
+            else
+                for (M m : puzzle.legalMoves(pos))
+                    exec.execute(newTask(puzzle.move(pos, m), m, this));
+        }
+    }
+}
+```
+
+为了在找到一个答案后停止，实现带结果的闭锁ValueLatch，代码如下所示：
+
+```java
+public class ValueLatch <T> {
+    private T value = null;
+    private final CountDownLatch done = new CountDownLatch(1);
+
+    public boolean isSet() {
+        return (done.getCount() == 0);
+    }
+    // setValue是同步的，确保只有一个线程执行设置操作
+    public synchronized void setValue(T newValue) {
+        if (!isSet()) {
+            value = newValue;
+            done.countDown();
+        }
+    }
+
+    public T getValue() throws InterruptedException {
+        done.await();       // 主线程调用getValue会被阻塞
+        synchronized (this) {
+            return value;
+        }
+    }
+}
+```
+
+在solve方法的finally块中，第一个找到答案的线程会关闭线程池，终止所有任务的同时也阻止新的任务被提交。为了避免处理RejectedExcutionException，将拒绝策略设置为抛弃已提交任务。而正在执行的任务都会失败使得Executor结束。
+
+如果不存在答案，那么getSolution方法永远阻塞。为了处理这种情况，一种方式是记录活动任务数量，在该值为零时将答案设置为null，代码如下所示：
+
+```java
+public class PuzzleSolver <P,M> extends ConcurrentPuzzleSolver<P, M> {
+    PuzzleSolver(Puzzle<P, M> puzzle) {
+        super(puzzle);
+    }
+
+    private final AtomicInteger taskCount = new AtomicInteger(0);
+
+    protected Runnable newTask(P p, M m, PuzzleNode<P, M> n) {
+        return new CountingSolverTask(p, m, n);
+    }
+
+    class CountingSolverTask extends SolverTask {
+        CountingSolverTask(P pos, M move, PuzzleNode<P, M> prev) {
+            super(pos, move, prev);
+            taskCount.incrementAndGet();
+        }
+
+        public void run() {
+            try {
+                super.run();
+            } finally {
+                if (taskCount.decrementAndGet() == 0)
+                    solution.setValue(null);
+            }
+        }
+    }
+}
+```
+
+除此之外，计算时间可能很长，此时可以加上时间限制：在ValueLatch中实现一个限时的getValue(即使用限时版本的await方法)，当getValue超时，那么关闭线程池并抛出异常。还可以基于其他策略关闭线程池，比如只搜索特定数量的位置。
+
+## 总结
+
+1. ThreadPoolExecutor参数设置(构造前参数指定，构造后setXxx)
+2. 定制化线程工厂
+3. beforeExecute、afterExecute、terminated方法扩展ThreadPoolExecutor
+4. 递归算法并行化的代码实现
