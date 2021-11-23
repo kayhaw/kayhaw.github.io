@@ -227,3 +227,104 @@ public synchronized void alternatePut(V v) throws InterruptedException {
 ```
 
 单次通知和条件通知可以优化通知性能，但是要遵守“先让程序正确执行，再让程序高效执行”的原则使用。
+
+### 示例：阀门类
+
+在第5章中的TestHarness类中使用二元闭锁来控制线程开始执行的时刻，但闭锁存在缺陷：它们是一次性的，阀门打开后就无法关闭。如下代码通过条件等待实现一个可重新关闭的ThreadGate类：
+
+```java
+public class ThreadGate {
+    // CONDITION-PREDICATE: opened-since(n) (isOpen || generation>n)
+    private boolean isOpen;
+    private int generation;
+
+    public synchronized void close() {
+        isOpen = false;
+    }
+    // 打开阀门，通知所有等待线程
+    public synchronized void open() {
+        ++generation;
+        isOpen = true;
+        notifyAll();
+    }
+    // BLOCKS-UNTIL: opened-since(generation on entry)
+    public synchronized void await() throws InterruptedException {
+        int arrivalGeneration = generation;
+        while (!isOpen && arrivalGeneration == generation)
+            wait();
+    }
+}
+```
+
+在await方法中的条件谓词稍微复杂些：如果只检查isOpen，当阀门快速开启又关闭时，所有线程可能都无法释放。通过generation计数器检查，每当阀门开启一次，所有线程都能够通过await。
+
+### 子类的安全问题
+
+对于状态依赖类，要么将其等待和通知等协议完全向子类公开，要么完全阻止子类参与到等待和通知过程。前者至少需要公开条件队列和锁，并将条件谓词和同步策略写入文档。后者可以隐藏条件队列、锁和状态变量(声明为private)，或者直接将类声明为final。
+
+### 封装条件队列
+
+通常需要把条件队列封装起来，否则调用者会滥用条件队列。然而这种做法与线程安全类的设计模式冲突，该模式建议使用对象的内置锁保护对象自身的状态，例如BoundedBuffer。可以将BoundedBuffer重新设计为使用私有锁对象和条件队列，此时它不再支持客户端加锁。
+
+### 入口协议与出口协议
+
+入口协议和出口协议是wait和notify方法正确使用的规范。对于每次依赖状态的操作，入口协议是该操作的条件谓词，出口协议包括，检查该操作修改的所有状态变量，确认它们是否改变其他条件谓词，如果是则通知相关条件队列。在AbstractQueuedSynchronizer中使用出口协议，该类并不是由同步器自行执行通知，而是要求同步器方法返回一个值来表示该类的操作是否解除了一个或多个线程的阻塞。
+
+## 显式的Condition对象
+
+内置条件队列存在一些缺陷：每个内置锁只能有一个相关联的条件队列。因此多个线程可能在同一个条件队列上等待不同的条件谓词，并且常见加锁模式会公开条件队列，这些因素都无法满足使用notifyAll时所有等待线程都是同一类型的需求，此时可以使用显示的Lock和Condition。
+
+正如条件队列和内置锁相关联，Condition和Lock关联在一起，通过Lock.newCondition方法得到Condition对象，并且每次Lock可以拥有任意数量的Codition对象。如下所示代码通过两个Condition给出有界缓存的另一种实现：
+
+```java
+public class ConditionBoundedBuffer <T> {
+    protected final Lock lock = new ReentrantLock();
+    // CONDITION PREDICATE: notFull (count < items.length)
+    private final Condition notFull = lock.newCondition();
+    // CONDITION PREDICATE: notEmpty (count > 0)
+    private final Condition notEmpty = lock.newCondition();
+    private static final int BUFFER_SIZE = 100;
+    private final T[] items = (T[]) new Object[BUFFER_SIZE];
+    private int tail, head, count;
+
+    // BLOCKS-UNTIL: notFull
+    public void put(T x) throws InterruptedException {
+        lock.lock();
+        try {
+            while (count == items.length)
+                notFull.await();
+            items[tail] = x;
+            if (++tail == items.length)
+                tail = 0;
+            ++count;
+            notEmpty.signal();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    // BLOCKS-UNTIL: notEmpty
+    public T take() throws InterruptedException {
+        lock.lock();
+        try {
+            while (count == 0)
+                notEmpty.await();
+            T x = items[head];
+            items[head] = null;
+            if (++head == items.length)
+                head = 0;
+            --count;
+            notFull.signal();
+            return x;
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+```
+
+使用Lock和Condition时也必须满足锁、条件谓词和条件变量的三元关系，当需要使用公平的队列操作或者每个锁对应多个等待线程队列等高级功能，优先考虑Condition而不是内置条件队列。
+
+:::caution 注意
+在Condition对象中，与wait、notify和notifyAll对应的方法分别时await、signal和signalAll，同时Condition也继承Object，所以也有wait等方法，但是要调用正确的await方法。
+:::
