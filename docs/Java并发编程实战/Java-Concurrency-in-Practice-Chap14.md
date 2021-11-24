@@ -328,3 +328,176 @@ public class ConditionBoundedBuffer <T> {
 :::caution 注意
 在Condition对象中，与wait、notify和notifyAll对应的方法分别时await、signal和signalAll，同时Condition也继承Object，所以也有wait等方法，但是要调用正确的await方法。
 :::
+
+## Synchronizer剖析
+
+ReentrantLock和Semaphore作为同步工具存在许多共同点，如下所示代码用ReentrantLock实现了Semaphore：
+
+```java
+public class SemaphoreOnLock {
+    private final Lock lock = new ReentrantLock();
+    // CONDITION PREDICATE: permitsAvailable (permits > 0)
+    private final Condition permitsAvailable = lock.newCondition();
+    private int permits;
+
+    SemaphoreOnLock(int initialPermits) {
+        lock.lock();
+        try {
+            permits = initialPermits;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    // BLOCKS-UNTIL: permitsAvailable
+    public void acquire() throws InterruptedException {
+        lock.lock();
+        try {
+            while (permits <= 0)
+                permitsAvailable.await();
+            --permits;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void release() {
+        lock.lock();
+        try {
+            ++permits;
+            permitsAvailable.signal();
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+```
+
+反之使用Semaphore实现ReentrantLock也是可行的，但实际上它们都基于AbstractQueuedSynchronizer(AQS)类实现，该类也是JUC下其他同步工具类的实现基础。
+
+## AbstractQueuedSynchronizer
+
+开发时不会直接使用AQS，因为标准同步工具类能够满足大部分情况。基于AQS的同步工具类中，最基础的是各种形式的获取操作和释放操作。获取操作时一种依赖状态的操作，通常会阻塞，释放操作不会阻塞，释放后所有请求时被阻塞的线程都会开始执行：
+
+```java
+boolean acquire() throw InterruptedException {
+    while(当前状态不允许获取操作){
+        if(需要阻塞获取操作) {
+            如果当前线程不在队列中，将其加入队列
+            阻塞当前线程
+        } else
+            返回false
+    }
+    可能更新同步器状态
+    线程位于队列中，将其移除
+    返回true
+}
+
+boolean release() {
+    更新同步器状态
+    if(新状态允许某个被阻塞的线程获取成功)
+        解除队列中一个或多个线程的阻塞状态
+}
+```
+
+AQS类管理一个整数，用于表示任意状态。比如ReentrantLock用它来表示所有者线程已经重复获取该锁的次数，Semaphore用它来表示剩余的许可数量，FutureTask用它表示任务状态(未开始、正在运行、已完成和已取消)。如下所示代码使用AQS实现一个二元闭锁：
+
+```java
+public class OneShotLatch {
+    private final Sync sync = new Sync();
+
+    public void signal() {
+        sync.releaseShared(0);
+    }
+
+    public void await() throws InterruptedException {
+        sync.acquireSharedInterruptibly(0);
+    }
+
+    private class Sync extends AbstractQueuedSynchronizer {
+        protected int tryAcquireShared(int ignored) {
+            // Succeed if latch is open (state == 1), else fail
+            return (getState() == 1) ? 1 : -1;
+        }
+
+        protected boolean tryReleaseShared(int ignored) {
+            setState(1); // Latch is now open
+            return true; // Other threads may now be able to acquire
+
+        }
+    }
+}
+```
+
+oneSlotLatch也可以使用继承AQS的方式实现，但并不推荐，因为它会暴露AQS的公共方法，调用者可能会使用这些公共方法破坏闭锁状态。JUC下的工具类也都没有直接扩展AQS，而是将功能委托给私有的AQS子类。
+
+## JUC同步器类中的AQS
+
+简单介绍ReentrantLock、Semaphore、CountDownLatch等同步器类是如何使用AQS
+
+### ReentrantLock
+
+ReentrantLock只支持独占方式的获取操作，因此实现了tryAcquire、tryRelease和isHeldExclusively方法。如下代码是非公平版本的tryAcquirefangfa方法：
+
+```java
+protected boolean tryAcquire(int ignored) {
+    final Thread current = Thread.currentThread();
+    int c = getState();
+    // 没有线程占有，尝试获取锁
+    if(c == 0) {
+        // 使用CAS修改状态，并返回成功
+        if(compareAndSetState(0, 1)) {
+            owner = current;
+            return true;
+        }
+    // 当前线程占有，状态计数器加1，返回成功
+    } else if(current == owner) {
+        setState(c+1);
+        return true;
+    }
+    return false;
+}
+```
+
+### Semaphore和CountDownLatch
+
+Semaphore将AQS中的同步状态用于保存当前可用许可证的数量，当许可证数量remaining小于0返回该值，否则使用CAS更新许可证数量。CountDownLatch使用AQS的方式与Semaphore相似，只不过逻辑相反：countDown方法调用AQS的release方法，导致计数器递减，await方法调用AQS的acquire方法，当计数器为零时立即返回，否则阻塞。
+
+```java
+protected int tryAcquireShared(int acquires) {
+    while(true) {
+        int available = getState();
+        int remaining = available - acuqires;
+        // 剩余数量小于0，直接返回表示获取失败
+        // 否则尝试修改state
+        if(remaining < 0 || compareAndSetState(available, remaining))
+            return remaining;
+    }
+}
+
+protected boolean tryReleaseShared(int releases) {
+    // while循环更新state，增加许可证数量
+    while(true) {
+        int p = getState();
+        if(compareAndSetState(p, p + release))
+            return true;
+    }
+}
+```
+
+### FutureTask
+
+FutureTask的get方法类似闭锁：某个事件(任务完成或取消)发生时，调用者线程继续执行，否则将停留在队列中直到该事件发生。在FutureTask中，AQS的state用于表示任务状态，此外FutureTask也要维护计算任务抛出的异常或者结果。
+
+### ReentrantReadWriteLock
+
+ReentrantReadWriteLock并没有使用两个AQS对象来实现读锁和写锁，而是用单个AQS对象同时管理读锁和写锁：state的16位表示写锁的技术，另外16位表示读锁的计数。在读锁上使用共享的获取和释放方法，在写锁上使用独占的获取和释放方法。
+
+AQS在内部维护一个等待队列，记录请求线程是独占还是共享访问。当锁可用时，如果队列头是写入线程，该线程获得锁，如果队列头是读取线程，队列中第一个写线程之前的读线程都将会获得锁。
+
+
+## 总结
+
+1. Lock相比于内置锁可以提供公平性选择(公平锁性能弱于非公平锁，一般用不上)，提供等待线程分类管理(通过Condition)等扩展功能
+2. 使用Condition时注意不要调用Object的wait、notify和notifyAll方法
+3. 实现状态依赖类的最好方式是使用现有库中的同步工具类，如果功能还不能满足使用AQS来构建自定义同步器
