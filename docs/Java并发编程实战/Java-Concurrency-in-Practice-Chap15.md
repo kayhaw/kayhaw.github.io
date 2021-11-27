@@ -137,3 +137,133 @@ public class CasNumberRange {
 1. 竞争程度高时，锁的性能略优于原子变量
 2. 竞争程度中等时，原子变量性能是锁性能2倍
 3. 使用ThreadLocal时性能最高，说明只有完全消除竞争，才能实现真正的可伸缩性
+
+## 非阻塞算法
+
+非阻塞算法：一个线程的失败或挂起不会导致其他线程失败或挂起
+无锁算法：算法的每一个步骤都存在某个线程能执行下去
+
+### 非阻塞的栈
+
+在实现相同功能情况下，使用非阻塞算法比基于锁的更加复杂。如下所示代码通过CAS实现一个非阻塞的栈：
+
+```java
+public class ConcurrentStack <E> {
+    AtomicReference<Node<E>> top = new AtomicReference<Node<E>>();
+
+    public void push(E item) {
+        Node<E> newHead = new Node<E>(item);
+        Node<E> oldHead;
+        do {
+            oldHead = top.get();
+            newHead.next = oldHead;
+        } while (!top.compareAndSet(oldHead, newHead));
+    }
+
+    public E pop() {
+        Node<E> oldHead;
+        Node<E> newHead;
+        do {
+            oldHead = top.get();
+            if (oldHead == null)
+                return null;
+            newHead = oldHead.next;
+        } while (!top.compareAndSet(oldHead, newHead));
+        return oldHead.item;
+    }
+
+    private static class Node <E> {
+        public final E item;
+        public Node<E> next;
+
+        public Node(E item) {
+            this.item = item;
+        }
+    }
+}
+```
+
+在push和pop方法中使用do-while和CAS，防止在操作过程中因为有其他线程进行出栈入栈操作导致不变性条件被破坏。
+
+### 非阻塞的链表
+
+相比于非阻塞的计数器和栈，实现非阻塞的链表更为复杂。为了实现对链表头尾节点的快速访问，需要单独文虎头尾指针。以尾节点为例，倒数第二个节点的next指针和尾指针都指向它。当插入元素时，这两个指针都需要采用原子更新。
+
+初看起来，这需要执行两个CAS操作，当这两个CAS操作其中一个失败，或者它们执行之间有另一个线程访问，都会出现链表状态不一致的情况。Michael-Scott提出的非阻塞链表算法解决了这个问题，如下给出了链表插入元素的代码实现：
+
+```java
+public class LinkedQueue <E> {
+
+    private static class Node <E> {
+        final E item;
+        final AtomicReference<LinkedQueue.Node<E>> next;
+
+        public Node(E item, LinkedQueue.Node<E> next) {
+            this.item = item;
+            this.next = new AtomicReference<LinkedQueue.Node<E>>(next);
+        }
+    }
+
+    private final LinkedQueue.Node<E> dummy = new LinkedQueue.Node<E>(null, null);
+    private final AtomicReference<LinkedQueue.Node<E>> head
+            = new AtomicReference<LinkedQueue.Node<E>>(dummy);
+    private final AtomicReference<LinkedQueue.Node<E>> tail
+            = new AtomicReference<LinkedQueue.Node<E>>(dummy);
+
+    public boolean put(E item) {
+        LinkedQueue.Node<E> newNode = new LinkedQueue.Node<E>(item, null);
+        while (true) {
+            LinkedQueue.Node<E> curTail = tail.get();
+            LinkedQueue.Node<E> tailNext = curTail.next.get();
+            // 这个if检查也很关键
+            if (curTail == tail.get()) {
+                if (tailNext != null) {
+                    // 队列处于中间状态，推进尾节点
+                    tail.compareAndSet(curTail, tailNext);
+                } else {
+                    // 处于稳定状态，尝试插入新节点
+                    if (curTail.next.compareAndSet(null, newNode)) {
+                        // 插入成功，尝试推进尾节点
+                        tail.compareAndSet(curTail, newNode);
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+该算法的基本思路是当链表处于中间状态(尾指针的next不为空)时，由当前线程完成尾指针的设置，使链表恢复为稳定状态。
+
+### 原子的域更新器
+
+在ConcurrentLinkedQueue的实际实现与上一小节的LinkedQueue略有区别，如下代码所示，它并没有将Node的next指针声明为AtomicReference类型而是普通的volatile类型，并使用基于反射的AtomicReferenceFieldUpdater来更新：
+
+```java
+private class Node<E> {
+    private final E item;
+    private valatile Node<E> next;
+
+    public Node(E item) {
+
+    }
+}
+
+private static AtomicReferenceFieldUpdater<Node, Node> nextUpdater
+    = new AtomicReferenceFieldUpdater
+```
+
+在ConcurrentLinkedQueue中，通过nextUpdate的compareAndSet来更新next。虽然代码稍微繁琐，但是它免去了每个Node的AtomicReference创建过程，对于频繁创建生命周期短暂的对象的场景，能够降低插入操作的开销。
+
+### ABA问题
+
+如果内存值由A变为B，再由B变为A，这种情况在某些算法中仍然被认为是发生了变化，但CAS认为没有，这就是ABA问题。一个简单的解决方案是：引入一个版本号，每次更新内存值版本号也更新，同时比较内存值和版本号相同才认为没有发生变化。在JUC中对应的实现是AtomicStampedReference和AtomicmarkableReference类。
+
+## 总结
+
+1. 非阻塞算法通过CAS来实现线程安全性
+2. 没有AtomicFloat和AtomicDouble类
+3. 在竞争程度中等情况下，使用原子类性能优于锁
+4. 非阻塞算法的实现更加困难，见ConcurrentLinkedQueue
+5. CAS存在ABA问题，通过引入版本号解决
