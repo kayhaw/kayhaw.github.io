@@ -79,3 +79,39 @@ Flink的高可用模式基于Apache ZooKeeper，如下图所示。JobManager将J
 2. 当在YARN或Mesos上运行，Flink的其他正常组件会触发JobManager或TaskManager的重启
 3. 当以standalone模式运行，Flink不重启失败进程
 :::
+
+## Flink中的数据转移
+
+运行中的流应用不断地交换数据，这由TaskManager的网络组件完成，它会缓存一些记录再传输而不是一条条地传输，如下图所示：
+
+<img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Data-Transfer-between-TaskManagers.png" title="Data Transfer between TaskManagers" />
+
+每个TaskManager用一个网络缓冲区(默认大小32KB)来发送、接收数据，缓冲区个数为算子并发度的平方。当一个发送task和一个接收task在同一个TaskManager中，发送方先将记录序列化保存在字节缓冲区中，当该缓冲区满了后，又将该缓冲区数据放到一个队列中，接收方再从队列中获取缓冲数据再反序列化，即同一个TaskManager的数据交换不会产生网络通信开销。
+
+:::tip 数据交换中缓冲区的使用
+在DataX中数据也是先到Column数组buffer中，如果buffer填满则将其全部导入到阻塞队列queue中
+:::
+
+Flink使用不同技术来降低task之间的通信开销，以下介绍基于credit的流控制和任务链。
+
+### 基于credit的流控制
+
+在task间进行网络通信时，每次只发一条记录延迟低但开销高，使用缓冲区收集一批记录再发送可以充分利用网络带宽，但是收集记录会增加延迟。
+
+Flink实现了基于credit的流控制机制提高效率：接收方向发送方给出一个credit，即接收方可用的网络buffer个数；当发送方接收到credit通知，按照credit的大小发送尽可能多的buffer，并且告知接收方其可发送的buffer个数(backlog)；接收方处理发送过来的buffer，并根据所有发送方backlog调整下一次credit的大小。
+
+基于credit的流控制优势：减少延迟(一旦接收方由足够多buffer接收数据，发送方马上传输)，防止数据倾斜(credit由发送方和接收方互相确定)。
+
+### 任务链
+
+当通信的task在同一个TaskManager内执行时，Flink使用任务链(Task Chaining)来降低开销。使用任务链优化必须满足两个要求：1. 多个算子具有相同并行度，2. 算子由本地通道连接，如下图所示：
+
+<img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/An-Operator-Pipeline-Satisfies-the-Requirements-of-Task-Chaining.png" title="An Operator Pipeline Satisfies the Requirements of Task Chaining" />
+
+当满足条件后，Flink会将这些算子的function合并为由单个线程执行的单个task。如下图所示，一个function产生的记录由简单方法调用传递给下一个function，因此记录传递不需要序列化和网络通信开销。
+
+<img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Chained-Task-Execution-with-Fused-Functions.png" title="Chained Task Execution with Fused Functions" />
+
+任务链能够显著地减少本地task的通信开销，但不是所有场景都需要任务链。比如，当某个function开销大时，此时把任务链拆开，让function分配到不同slot更好，如下图所示：
+
+<img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Nochained-Task-Execution.png" title="Nochained Task Execution" />
