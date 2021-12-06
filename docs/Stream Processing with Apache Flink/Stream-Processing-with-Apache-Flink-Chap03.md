@@ -180,5 +180,51 @@ Flink实现了基于credit的流控制机制提高效率：接收方向发送方
 3. 间断assigner：由用户自定义方法AssignerWithPunctuatedWatermarks从记录中提取时间戳，由特定的记录生成水印。和AssignerWithPeriodicWatermarks不同的是，它不需要从**每条**记录中生成水印。
 
 :::caution
-用户自定义的时间戳赋值方法通常应用于尽可能接近数据源(Source Operator)的地方，因为在算子处理记录和它们的时间戳之后，很难判断它们的顺序，并且也不应该在流处理的中间覆盖已有的时间戳和水印。
+用户自定义的时间戳赋值方法通常应用于尽可能接近数据源(Source Operator)的地方，因为在算子处理记录和它们的时间戳之后，很难判断它们的顺序，并且也不应该在流处理的中间覆盖已有的时间戳和水印，即使可以通过自定义方法实现。
 :::
+
+## 状态管理
+
+大多数的流处理应用都是有状态的，如下所示，任务维护并用于计算的数据属于该任务的状态。
+
+<img style={{width:"50%", height:"50%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/A-Stateful-Stream-Processing-Task.png" title="A Stateful Stream Processing Task" />
+
+一个任务接收输入数据，在处理数据时会读取任务自己的状态然后更新状态，并输出结果。任务读取更新状态的逻辑通常直观简单，但是实现高效且可靠的状态管理更难：状态太大内存溢出怎么办、任务故障如何保证状态不丢失。这些问题都需要Flink处理，让开发者只需要关注应用逻辑。根据可见性的不同，状态分为如下两种：
+
+### 算子状态
+
+算子状态(Operator State)仅在同一个算子的并发任务中可见，不同算子或者不同任务的状态互相独立，如下图所示：
+
+<img style={{width:"50%", height:"50%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Tasks-with-Operator-State.png" title="Tasks with Operator State" />
+
+Flink为算子状态提供3个原语：
+
+- List state：以列表形式展示状态
+- Union list state：也是以列表形式展示状态，但是在故障恢复时和list state稍有不同
+- Broadcast state：为所有算子的任务状态相同时而设计，用于检查点和算子调节(rescaling)
+
+### 键控状态
+
+键控状态(Keyed State)根据操作符的输入流记录中定义的键来维护和访问。如下图所示，根据记录颜色分配到不同task并管理状态：
+
+<img style={{width:"50%", height:"50%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Tasks-with-Keyed-State.png" title="Tasks with Keyed State" />
+
+对于键控状态，Flink提供如下原语：
+
+- Value state：每个键保存一个任意类型的值，支持复杂数据结构
+- List state：每个键保存一个列表，列表元素类型任意
+- Map state：每个键保存一个map，map的key和value类型任意
+
+### 状态后端
+
+为了在处理记录时高效访问状态，task在**本地**维护其状态。而具体的状态访问、存储、维护由一个称为状态后端(State Backend)的可插拔组件提供，它负责两件事：
+
+- 本地状态管理
+
+将状态保存到本地提供访问，Flink将键控状态作为对象保存在JVM堆中，也可以将对象序列化保存在RocksDB中。前者访问快但存储大小受限，后者访问慢但容量大。
+
+- 状态检查点化
+
+由于Flink是分布式系统并且状态仅在本地维护，当TaskManager故障时状态失效，因此需要状态检查点化将状态保存到远程存储。并且检查点化也有不同策略，比如RocksDB支持增量检查点，在状态体积很大时可以减少开销。
+
+有关状态后端更详细的讨论见第7章*选择状态后端*一节。
