@@ -228,3 +228,23 @@ Flink为算子状态提供3个原语：
 由于Flink是分布式系统并且状态仅在本地维护，当TaskManager故障时状态失效，因此需要状态检查点化将状态保存到远程存储。并且检查点化也有不同策略，比如RocksDB支持增量检查点，在状态体积很大时可以减少开销。
 
 有关状态后端更详细的讨论见第7章*选择状态后端*一节。
+
+### 缩放状态算子
+
+算子的并行度需要根据流的输入速率调整，这种操作称之为**缩放(scaling)**。缩放无状态算子没什么难度，但缩放状态算子更复杂，因为需要对状态重新分区并转移。Flink支持4种缩放模式：
+
+1. 带键控状态的算子通过主键重分配来缩放，如下图所示，**Flink并不会重分配单个键，而是以键组(key group)为单位进行重分配**。
+
+<img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Scaling-an-Operator-with-Keyed-State-out-and-in.png" title="Scaling an Operator with Keyed State out and in" />
+
+2. 对于list状态，将每个列表中的状态重新分发到新的列表状态，如下图所示，注意如果原来列表的元素个数小于新的并行度，那么有的任务状态为空。
+
+<img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Scaling-an-Operator-with-Operator-List-State-out-and-in.png" title="Scaling an Operator with Operator List State out and in" />
+
+3. 对于union list状态，通过将每个任务的状态列表**广播**到新任务实现缩放，新任务可以选择性地接收状态，如下图所示。
+
+<img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Scaling-an-Operator-with-Operator-Union-List-State-out-and-in.png" title="Scaling an Operator with Operator Union List State out and in" />
+
+4. 对于broadcast状态，由于每个task的都有一份状态拷贝，扩展算子并行度只需要拷贝状态到新任务，收缩算子并行度只需要取消多余任务，如下图所示。
+
+<img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Scaling-an-Operator-with-Operator-Broadcast-State-out-and-in.png" title="Scaling an Operator with Operator Broadcast State out and in" />
