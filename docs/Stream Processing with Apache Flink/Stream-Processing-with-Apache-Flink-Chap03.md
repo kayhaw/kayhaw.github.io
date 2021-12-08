@@ -248,3 +248,70 @@ Flink为算子状态提供3个原语：
 4. 对于broadcast状态，由于每个task的都有一份状态拷贝，扩展算子并行度只需要拷贝状态到新任务，收缩算子并行度只需要取消多余任务，如下图所示。
 
 <img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Scaling-an-Operator-with-Operator-Broadcast-State-out-and-in.png" title="Scaling an Operator with Operator Broadcast State out and in" />
+
+## 检查点、保存点和状态恢复
+
+介绍Flink如何通过检查点和恢复机制保证精准一次(exactly-once)的状态一致性。
+
+### 一致性检查点
+
+**一致性检查点(Consistent Checkpoint)**指所有任务都处理了完全相同的输入时，每个任务的状态拷贝。一种朴素的实现算法是：
+
+1. 暂停所有输入
+2. 等传输中的数据处理完毕
+3. 拷贝每个任务的状态到远程持久化存储
+4. 恢复所有输入
+
+如下图所示为一个流处理应用的一致性检查点快照，该应用的输入(source operator)为自然数1,2,3...，根据奇偶性分为2个子流并计算总和，设置检查点时输入状态为5(已经被发送处理)，偶数和算子状态为6(2+4)，奇数和算子状态为9(1+3+5)，因此Flink将5,6,9保存到远程存储中。
+
+<img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/A-Consistent-Checkpoint-of-a-Streaming-Application.png" title="A Consistent Checkpoint of a Streaming Application" />
+
+### 从一致性检查点中恢复
+
+在运行流应用过程中，Flink会定时保存一致性检查点，在故障时恢复到最近一次的检查点再重新开始处理，如下图所示，应用通过3步恢复：
+
+1. 重启整个应用
+2. 将所有任务状态重置为上一个检查点
+3. 恢复所有任务执行
+
+<img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Recovering-an-Application-from-a-Checkpoint.png" title="Recovering an Application from a Checkpoint" />
+
+检查点和恢复机制提供精准一次的状态一致性，因为所有算子的状态都恢复到上一次检查点时。**注意，数据源是否可以重置取决于其具体系统的实现**，比如Kafka可以但是socket不行，**即只有当所有输入源支持重置时，应用才能实现精准一次的状态一次性**。
+
+尽管会出现数据重复处理的情况，如上图中的6，但检查点恢复机制仍然达到精准一次的状态一致性，因为所有算子状态都被重置就好像6没有被处理过一样。
+
+:::caution 注意
+Flink的检查点机制仅重置内部(internal)算子状态，当sink operator是文件系统、数据库时结果可能会被发送多次。Flink也提供实现精准一次输出的sink function，在检查点保存完毕后以事务提交结果。这种要求更高的端到端精准一次性策略在第8章介绍。
+:::
+
+### Flink检查点算法
+
+暂停、保存检查点、恢复这种简单的算法会暂停整个Flink应用(stop-the-world)，对于有延迟要求的应用来说不切实际。Flink基于Chandy–Lamport算法实现了分布式检查点快照，该算法不仅不会stop the world而且将数据处理和检查点保存解耦。
+
+如下图所示为一个简单的流应用，它接收2个输入流，按照奇偶性分流并计算总和，最后输出。
+
+<img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Streaming-Application-with-2-Parallelism.png" title="Streaming Application with 2 Parallelism" />
+
+当初始化检查点时，JobManager会发送一条带id的特殊记录，称为检查点屏障(Checkpoint Barrier)给所有数据源任务，如下图所示：
+
+<img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/JobManager-Initiates-a-Checkpoint.png" title="JobManager Initiates a Checkpoint" />
+
+source operator收到barrier后，1)停止发送记录，2)触发检查点保存，3)**广播**barrier，4)恢复执行。如下图所示，source operator通过注入barrier确定了检查点在流中的位置：
+
+<img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Sources-Checkpoint-State-and-Emit-a-Checkpoint-Barrier.png" title="Sources Checkpoint State and Emit a Checkpoint Barrier" />
+
+类似于水印，source operator的barrier会被广播到所有任务确保每个任务都从其每个输入流中收到。当一个任务收到barrier后，它会等待其他所有输入的barrier。在等待过程中，任务继续处理还没有接收到barrier的分区流，而已经接收到barrier的分区流暂停处理并缓存其数据(称为**屏障对齐，Barrier Alignment**)，如下图所示。
+
+<img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Tasks-Wait-to-Receive-a-Barrier-on-Each-Input-Partition.png" title="Tasks Wait to Receive a Barrier on Each Input Partition" />
+
+当接收到所有输入分区的barrier后，任务保存检查点并向下游广播barrier，如下图所示：
+
+<img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Tasks-Checkpoint-State-and-Emit-Barrier.png" title="Tasks Checkpoint State and Emit Barrier" />
+
+当所有barrier被发送后，任务先处理缓存数据，然后才继续处理输入流，如下图所示：
+
+<img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Tasks-Continue-Regular-Processing-after-Barrier-is-Forward.png" title="Tasks Continue Regular Processing after Barrier is Forward" />
+
+最终barrier到达sink task，它也会执行barrier对齐，保存检查点状态然后告知JobManager已经收到barrier。当JobManager接收所有task的检查点通知后，它将该应用标记为已完成一次检查点保存，最终结果如下图所示：
+
+<img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Sinks-Acknowledge-JobManager-and-a-Checkpoint-is-Complete.png" title="Sinks-Acknowledge-JobManager-and-a-Checkpoint-is-Complete" />
