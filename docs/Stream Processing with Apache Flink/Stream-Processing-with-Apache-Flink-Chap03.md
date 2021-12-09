@@ -315,3 +315,50 @@ source operator收到barrier后，1)停止发送记录，2)触发检查点保存
 最终barrier到达sink task，它也会执行barrier对齐，保存检查点状态然后告知JobManager已经收到barrier。当JobManager接收所有task的检查点通知后，它将该应用标记为已完成一次检查点保存，最终结果如下图所示：
 
 <img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Sinks-Acknowledge-JobManager-and-a-Checkpoint-is-Complete.png" title="Sinks-Acknowledge-JobManager-and-a-Checkpoint-is-Complete" />
+
+### 检查点的性能影响
+
+为了最大程度地减少检查点保存的延迟，Flink在特定情况下实现了些小技巧来化解性能影响：
+
+- 状态后端(如文件系统、RocksDB)**异步**保存检查点，此外，RocksDB还可以实现**增量**检查点。
+- 调整barrier对齐步骤，当应用对延迟要求很高并且可以接受至少一次保障，Flink可以通过配置让barrier对齐时数据立即被处理而不是缓存起来。
+
+### 保存点
+
+Flink通过周期性的检查点快照来实现故障恢复，保存点(savepoint)实现算法和检查点一样，但有以下不同之处：
+
+- 保存数据：保存点额外对元数据进行快照
+- 触发机制：检查点由Flink自动定时触发，保存点需要用户显式触发
+- 删除策略：Flink根据配置策略自动删除检查点，但不会自动删除保存点
+
+#### 使用保存点
+
+检查点是一种特殊的保存点，它在相同集群、相同配置、相同应用下启动应用，而保存点提供更多功能：
+
+- 从检查点可以启动一个不同但**兼容**的应用，可以用于修复应用BUG
+- 相同应用在并发度缩放下启动(并发度不同)
+- 在不同集群下重启应用，可以用于迁移应用到新版本的Flink
+- 暂停应用随后重启，可以用于为高优先级应用缓解集群资源
+- 为应用创建版本或者存档
+
+#### 从保存点中启动应用
+
+如下图示例是一个含3个算子的应用，算子OP-1含有一个算子状态OS-1，算子OP-2有2个键控状态KS-1、KS-2，当保存点触发时，所有任务的状态被保存到持久化存储。
+
+状态备份通过算子id和状态名称确定(额外的元数据)，当从保存点重启应用时，Flink将保存点分发到对应的算子中。
+
+:::note
+保存点并不包含任务信息，因为任务数量(并发度)会改变，在之前的小节中介绍了Flink如何[缩放状态算子](#缩放状态算子)
+:::
+
+<img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Taking-a-Savepoint-from-an-Application-and-Restoring-an-Application-from-a-Savepoint.png" title="Taking a Savepoint from an Application and Restoring an Application from a Savepoint" />
+
+当通保存点启动**不同**的应用时，只有算子id和状态名相同时才能恢复状态。默认情况下，Flink会自动生成唯一的算子id。由于**每个算子id都根据其前置算子id生成**，如果添加或删除算子都会导致保存点恢复失败，因此**强烈推荐手动为算子分配id而不是依赖Flink的默认分配**。
+
+## 总结
+
+1. Flink的流控制类似TCP流量控制，双方按照自己能接收的窗口大小(credit)通信
+2. 水印的传播机制：先更新分区水印，再更新task事件时间，事件时间增加则触发计算并向下游广播该水印
+3. 算子状态与task实例关联，键控状态与记录管理，它们都由状态后端维护；状态算子的缩放策略根据状态类型而定
+4. 检查点流程：源端插入检查点，检查点对齐，检查点保存，检查点恢复
+5. 检查点和保存点的区别：检查点是一种特殊的保存点
