@@ -364,3 +364,112 @@ DataStream keyedConnect2 = one.keyBy(0).connect(two.keyBy(0));
 // 广播将事件复制发送到每个后续算子实例上
 DataStream keyedConnect = first.connect(second.broadcast());
 ```
+
+- Split和select
+
+:::danger 小心
+split相关API已经从Flink 14.0.0中删除，使用[Side output](https://ci.apache.org/projects/flink/flink-docs-stable/dev/stream/side_output.html)代替，这里还是稍微提一下。
+:::
+
+Split是union的逆操作：将一个流分解为0至多个流。 DataStream.split(OutputSelector)方法返回一个SplitStream，而SplitStream又提供select()方法选择子流。
+
+### 分配转换
+
+分配转换(Distribution Transformations)是[数据交换策略](/docs/Stream%20Processing%20with%20Apache%20Flink/Stream-Processing-with-Apache-Flink-Chap02#数据交换策略)的实现，定义如何将数据分配到task。
+
+:::caution 注意
+keyBy()和分配转换不同，前者产生KeyedStream，后者仍为DataStream
+:::
+
+DataStream API提供如下的分区策略：
+
+|策略|API|说明|
+|----|----|---|
+|Random|DataStream.shuffle()|根据下游并行度随机地分发记录|
+|Round-Robin|DataStream.rebalance()|轮询式发送记录到下游task|
+|Rescale|DataStream.rescale()|轮询式发送记录到下游task的**子集**|
+|Broadcast|DataStream.broadcast()|将记录复制然后分发到下游所有task|
+|Global|DataStream.global()|将记录发送到下游第一个task，谨慎使用|
+|Custom|DataStream.partitionCustom(Partitioner, KeySelector)|实现一个Partitioner函数式接口和一个KeySelector接口|
+
+```java
+@FunctionalInterface
+public interface Partitioner<K> extends java.io.Serializable, Function {
+
+    /**
+     * Computes the partition for the given key.
+     *
+     * @param key The key.
+     * @param numPartitions The number of partitions to partition into.
+     * @return The partition index.
+     */
+    int partition(K key, int numPartitions);
+}
+```
+
+## 设置并行度
+
+算子的并行度按照如下顺序设置：
+
+1. 调用算子setParallelism(int)方法单独设置
+2. 调用ExecutionEnvironment.setParallelism(int)全局设置
+3. 本地执行时全局设置默认为CPU核数
+4. 远程执行时由client指定全局设置
+
+通常将算子的并行度设置为和全局并行度相关，这样提交时可以通过全局并行度进行缩放，如下所示：
+
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+// get default parallelism
+int defaultP = env.getParallelism
+
+// the source runs with the default parallelism
+DataStream<T> result = env.addSource(new CustomSource)
+  // the map parallelism is set to double the default parallelism
+  .map(new MyMapper).setParallelism(defaultP * 2)
+  // the print sink parallelism is fixed to 2
+  .print().setParallelism(2);
+```
+
+## 类型
+
+**类型信息(Type Information)**：指Flink处理的事件流由数据对象(Data Object)组成，类型信息指处理数据对象的类型、对应的解/编码器等信息。
+
+### 支持的数据类型
+
+Flink原生支持如下数据类型(参考[Supported Data Types](https://nightlies.apache.org/flink/flink-docs-release-1.14/docs/dev/datastream/fault-tolerance/serialization/types_serialization/)在原书上补充)：
+
+1. Scala和Java的基本类型
+
+```java
+DataStream<Long> numbers = env.fromElements(1L, 2L, 3L, 4L);
+```
+
+2. Scala和Java的元组(tuple)
+
+```java
+DataStream<Tuple2> persons = env.fromElements(new Tuple2("Kay", 19), new Tuple2("Haw", 20));
+```
+
+Flink提供从1个元素到25个元素的元组类型，每个元组类型都是单独一个类(`Tuple1`, `Tuple2`, ... `Tuple25`)。
+
+3. Scala的case类
+4. POJO
+
+:::tip
+Flink对POJO有以下要求：
+
+- public类
+- 需要有一个public的无参构造器
+- 所有字段要么是public的，要么可以通过getter、setter访问，并且getter/setter方法名符合getXxx和setXxx的格式
+- 字段类型必须能被一个serializer序列化
+:::
+
+5. General Class
+
+不符合POJO要求的类被视为通用类，Flink使用[Kryo](https://github.com/EsotericSoftware/kryo)对其进行序列化和反序列化。
+
+:::caution 注意
+尽量避免使用Kryo，因为它并不是很高效
+:::
