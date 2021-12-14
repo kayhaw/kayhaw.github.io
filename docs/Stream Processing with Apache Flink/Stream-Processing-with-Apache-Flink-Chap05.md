@@ -29,7 +29,7 @@ tags:
 
 ### 设置执行环境
 
-所有Flink应用的第一步操作就是设置其*执行环境(execution environment)*，DataStream API提供静态方法getExecutionEnvironment()来获取。该方法**根据其所在的上下文环境(context)返回一个本地(local)或者远程(remote)执行环境**，如果方法通过客户端连接远程集群提交调用，则创建远程执行环境否则返回一个本地执行环境。也可以通过`createLocalEnvironment`和`createRemoteEnvironment`显示指定，如下所示：
+所有Flink应用的第一步操作就是设置其*执行环境(Execution Environment)*，DataStream API提供静态方法getExecutionEnvironment()来获取。该方法**根据其所在的上下文环境(context)返回一个本地(local)或者远程(remote)执行环境**，如果方法通过客户端连接远程集群提交调用，则创建远程执行环境否则返回一个本地执行环境。也可以通过`createLocalEnvironment`和`createRemoteEnvironment`显示指定，如下所示：
 
 ```java
 // 创建流执行环境
@@ -392,6 +392,8 @@ DataStream API提供如下的分区策略：
 |Global|DataStream.global()|将记录发送到下游第一个task，谨慎使用|
 |Custom|DataStream.partitionCustom(Partitioner, KeySelector)|实现一个Partitioner函数式接口和一个KeySelector接口|
 
+<img style={{width:"50%", height:"50%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap05/Rebalance-and-Rescale-Transformations.png" title="Rebalance and Rescale Transformations" />
+
 ```java
 @FunctionalInterface
 public interface Partitioner<K> extends java.io.Serializable, Function {
@@ -473,3 +475,161 @@ Flink对POJO有以下要求：
 :::caution 注意
 尽量避免使用Kryo，因为它并不是很高效
 :::
+
+6. Value
+
+指实现了`org.apache.flink.types.Value`接口的对象，Value接口又继承IOReadableWritable，通过实现write和read两个方法，Value类型可以自定义序列化和反序列化操作。
+
+```java
+public interface Value extends IOReadableWritable, Serializable {}
+
+public interface IOReadableWritable {
+
+    /**
+     * Writes the object's internal data to the given data output view.
+     *
+     * @param out the output view to receive the data.
+     * @throws IOException thrown if any error occurs while writing to the output stream
+     */
+    void write(DataOutputView out) throws IOException;
+
+    /**
+     * Reads the object's internal data from the given data input view.
+     *
+     * @param in the input view to read the data from
+     * @throws IOException thrown if any error occurs while reading from the input stream
+     */
+    void read(DataInputView in) throws IOException;
+}
+```
+
+当需要复制时或者修改值时，可以使用Value的派生接口CopyableValue/ResettableValue。Flink提供了基本类型对应的Value类，如ByteValue、ShortValue等，它们都实现了CopyableValue和ResettableValue两种接口。
+
+:::note 为什么需要Value?
+**当通用的序列化并不高效时，可以通过Value来自定义高效的序列化和序列化**。比如将稀疏矩阵作为数据类型时，由于大多数元素为0，可以给非0元素编码而不是将所有元素都编码。
+:::
+
+7. Hadoop Writables
+
+指实现了`org.apache.hadoop.Writable`接口的类型。
+
+8. 特殊类型
+
+比如Scala的`Either`、`Option`和`Try`，Java的`Optional`。
+
+### 创建类型信息
+
+通过`TypeInformation`类型构造类型信息，Flink类型系统使用`TypeInformation`得到序列化器和比较器等重要信息，比如检查作为key的字段是否有效。
+
+在运行时,类型提取器(Type Extractor)分析泛型并返回所有的方法来获得各自TypeInformation对象。
+
+```java
+// TypeInformation for primitive types
+TypeInformation<Integer> intType = Types.INT;
+
+// TypeInformation for Java Tuples
+TypeInformation<Tuple2<Long, String>> tupleType = 
+  Types.TUPLE(Types.LONG, Types.STRING);
+
+// TypeInformation for POJOs
+TypeInformation<Person> personType = Types.POJO(Person.class);
+```
+
+### 显式地提供类型信息
+
+大多数情况下，Flink可以推测类型并生成对应的TypeInformation，这由类型提取器通过反射实现。但在一些情况下，比如Java泛型的类型擦除，会导致类型信息提取失败。此时，需要显式地提供类型信息，有2种方式：
+
+1. function类实现ResultTypeQueryable接口
+2. 使用returns()方法指定
+
+## 定义key和引用字段
+
+在前面的例子中，使用keyBy()对流分区时需要指定key。数据流中的key并不是事先定义好的，而是通过方法定义。DataStream API提供如下方式定义key：
+
+### ~~字段位置~~
+
+当数据类型为元组时，通过字段位置指定，可以传入多个位置，**已过时，使用KeySelector代替**。
+
+```java
+DataStream<Tuple3<Integer, Long, Double>> input = ...
+DataStream keyed = input.keyBy(1, 2);
+```
+
+### ~~字段表达式~~
+
+通过POJO，元组的字段名称指定key，嵌套字段使用`.`分隔，使用`_`匹配所有字段。**已过时，使用KeySelector代替**。
+
+```java
+public class Address {
+    public String address;
+    public String zip;
+    public String country;
+}
+
+public class Person {
+    public String name;
+    public Tuple3<Integer, Integer, Integer> birthday;
+    public Address address;
+}
+
+DataStream<Person> persons = ...
+DataStream<Persom> p1 = persons.keyBy("address.zip")
+DataStream<Persom> p2 = persons.keyBy("birthday._")
+```
+
+### Key Selectors
+
+通过给keyBy传入函数式接口KeySelector来提取key，见[KeyedStream转换](#keyedstream转换)
+
+## 实现UDF
+
+介绍实现DataStream API中泛型函数的不同实现方式。
+
+### 函数类
+
+Flink为自定义方法设计了许多接口，比如MapFunction、FliterFunction等。实现UDF即实现这些接口，可以单独写个类，也可以使用匿名类。
+
+:::caution 注意
+由于Flink会将所有Function对象序列化传递给worker进程，因此Function的所有字段必须实现Serializable接口。如果包含不可序列化字段，使用Rich Function代替。
+:::
+
+### Lambda函数
+
+当UDF是函数式接口时，可以直接使用lambda表达式。
+
+### 富函数
+
+富函数(Rich Function)从字面上来说就是比常规函数提供更多的功能，Flink为每个普通转换函数都设计了对应的富函数(如RichMapFunction)。RichFunction接口定义如下：
+
+```java
+public interface RichFunction extends Function {
+    void open(Configuration parameters) throws Exception;
+
+    void close() throws Exception;
+
+    RuntimeContext getRuntimeContext();
+
+    IterationRuntimeContext getIterationRuntimeContext();
+
+    void setRuntimeContext(RuntimeContext t);
+}
+```
+
+- `open()`：初始化方法，每个task在开始转换操作前执行一次
+- `close()`：终结方法，每个task在结束转换操作后执行一次
+- `getRuntimeContext()`：用于获取并发度，子任务编号，任务名称等信息
+
+## 添加应用依赖
+
+应用往往需要添加额外依赖，常见的有Apache Commons或者Google Guava。但Flink集群默认只提供DataStream和DataSet的依赖，为此有2种方式解决：
+
+1. 将所有依赖封装到应用jar中，这会生成一个功能齐全但是非常大的fat jar文件
+2. 将依赖jar文件放到Flink的lib目录下
+
+## 总结
+
+1. Flink应用编程5步骤
+2. 基本流操作的使用就是实现xxxFunction接口
+3. 并行度设置的优先级顺序
+4. Flink POJO类型需要满足的条件
+5. 应用依赖的2种添加方式
