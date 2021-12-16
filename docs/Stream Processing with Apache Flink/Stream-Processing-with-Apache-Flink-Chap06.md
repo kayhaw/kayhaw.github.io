@@ -92,3 +92,106 @@ DataStream API提供了比转换函数更底层的处理函数(Process Function)
 
 1. `processElement(I value, Context ctx, Collector<O> out)`：处理流上的每个记录value，将结果输出到out。Context对象提供timestamp和TimerService。
 2. `onTimer(long timestamp, OnTimerContext ctx, Collector<O> out)`：设置定时器的回调方法。
+
+### TimerService和Timer
+
+Context和OnTimerContext都包含TimerService对象，它提供如下方法：
+
+- `long currentProcessingTime()`：返回当前处理时间
+- `long currentWatermark()`：返回当前水印
+- `void registerProcessingTimeTimer(long time)`：注册一个处理时间定时器
+- `void registerEventTimeTimer(long time)`：注册一个事件时间定时器
+- `void deleteProcessingTimeTimer(long timestamp)`：删除一个处理时间定时器，如果不存在则什么也不做
+- `void deleteEventTimeTimer(long timestamp)`：删除一个事件时间定时器，如果不存在则什么也不做
+
+定时器触发后执行`onTimer()`回调，它和`processElement()`是同步的，避免并发访问状态。定时器会和其他状态一起被检查点保存。
+
+### 发送到Side Outputs
+
+通常情况下DataStream API中算子只输出单个流，只有split算子输出多个流(且基本类型不变)。但处理函数特殊之处在于它们有侧输出(Side Output)，并且基本类型可变，如下所示：
+
+```java
+DataStream<SensorReading> monitoredReadings = readings.process(new FreezingMonitor());
+// 获取侧输出流并打印
+monitorReadings.getSideOutput(new OutputTag<String>("freezing-alarms")).print();
+
+public static class FreezingMonitor extends ProcessFunction<SensorReading, SensorReading> {
+    OutputTag<String> freezingAlarmOutput = new OutputTag<>("freezing-alarms");
+
+    @Override
+    public void processElement(SensorReading value, Context ctx, Collector<SensorReading> out) throws Exception {
+        if(value.temperature < 32.0) {
+            ctx.output(freezingAlarmOutput, "Freezing Alarm for " + value.id);
+        }
+        out.collect(value);
+    }
+}
+```
+
+在processElement方法中通过Context.output()发送侧输出数据，侧输出由OutputTag对象标记识别。
+
+### CoProcessFunction
+
+对于处理2个流的底层操作，DataStream API提供CoProcessFunction。和CoMapFunction类似，它提供processElement1()和processElement2()两个方法分别处理每个流的输入。
+
+## 窗口操作
+
+窗口操作使得在无界的流上进行聚合函数计算称为可能，本节介绍如何定义窗口算子、内置窗口类型、窗口可用函数和如何自定义窗口逻辑。
+
+### 定义窗口算子
+
+KeyedStream或者非KeyedStream都可以使用窗口算子，创建窗口算子需要指定如下两个组件：
+
+1. Window Assigner：决定元素如何组成窗口，即生成WindowedStream或者AllWindowedStream(在非KeyedStream上)。
+
+2. Window Function：处理WindowedStream或者AllWindowedStream的元素
+
+如下所示为窗口操作和窗口函数使用的伪代码：
+
+```java
+// define a keyed window operator
+stream
+  .keyBy(...)                 
+  .window(...)                   // specify the window assigner
+  .reduce/aggregate/process(...) // specify the window function
+
+// define a nonkeyed window-all operator
+stream
+  .windowAll(...)                // specify the window assigner
+  .reduce/aggregate/process(...) // specify the window function
+```
+
+### 内置Window Assigner
+
+Flink内置了许多Window Assigner满足不同使用场景，本节讨论基于时间的窗口操作(基于计数的窗口操作结果不准确)。每个窗口都有一个开始时间和一个结束时间，窗口的范围是**左闭右开**。以下介绍内置的开窗算子：
+
+- 滚动窗口
+
+滚动窗口算子将元素分为固定大小，互不重叠的窗口，如下图所示：
+
+<img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap06/A-Tumbling-Window-Assigner-Example.png" title="A Tumbling Window Assigner Example" />
+
+对于事件时间语义和处理时间语义，DataStream API分别提供TumblingEventTimeWindows和TumblingProcessingTimeWindows。使用其静态方法`of(Time size, Time offset)`指定窗口大小和偏移量，代码如下所示：
+
+```java
+sensorData.keyBy(r -> r.id)
+          // timeWindow(Time.seconds(1))已过时，它实际上是下面代码的封装
+          .window(TumblingEventTimeWindows.of(Time.hours(1), Time.minutes(15)))
+          .process(new TemperatureAverager());
+```
+
+滚动窗口默认和1970-01-01 00:00:00对齐，以上示例代码定义了[00:15:00-01:15:00)，[00:15:00-02:15:00)...窗口。
+
+- 滑动窗口
+
+滑动窗口算子将元素分为固定大小，偏移指定大小的窗口，如下图所示：
+
+<img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap06/A-Sliding-Window-Assigner-Example.png" title="A Sliding Window Assigner Example" />
+
+滚动窗口需要指定窗口大小size和滑动步长slide。**如果slide小于size，那么会有一些元素属于两个窗口，如果slide大于size，那么会有一些元素没有包含在窗口中。**如下代码演示大小为1个小时，步长为15分钟的滑动窗口操作：
+
+```java
+sensorData.keyBy(r -> r.id)
+          .window(SlidingEventTimeWindows.of(Time.hours(1), Time.minutes(15)))
+          .process(new TemperatureAverager());
+```
