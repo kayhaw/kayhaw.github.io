@@ -167,7 +167,7 @@ Flink内置了许多Window Assigner满足不同使用场景，本节讨论基于
 
 - 滚动窗口
 
-滚动窗口算子将元素分为固定大小，互不重叠的窗口，如下图所示：
+滚动窗口分配器将元素分为固定大小，互不重叠的窗口，如下图所示：
 
 <img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap06/A-Tumbling-Window-Assigner-Example.png" title="A Tumbling Window Assigner Example" />
 
@@ -175,7 +175,7 @@ Flink内置了许多Window Assigner满足不同使用场景，本节讨论基于
 
 ```java
 sensorData.keyBy(r -> r.id)
-          // timeWindow(Time.seconds(1))已过时，它实际上是下面代码的封装
+          // timeWindow(Time.hours(1))已过时，它实际上是下面代码的封装
           .window(TumblingEventTimeWindows.of(Time.hours(1), Time.minutes(15)))
           .process(new TemperatureAverager());
 ```
@@ -184,7 +184,7 @@ sensorData.keyBy(r -> r.id)
 
 - 滑动窗口
 
-滑动窗口算子将元素分为固定大小，偏移指定大小的窗口，如下图所示：
+滑动窗口分配器将元素分为固定大小，偏移指定大小的窗口，如下图所示：
 
 <img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap06/A-Sliding-Window-Assigner-Example.png" title="A Sliding Window Assigner Example" />
 
@@ -195,3 +195,101 @@ sensorData.keyBy(r -> r.id)
           .window(SlidingEventTimeWindows.of(Time.hours(1), Time.minutes(15)))
           .process(new TemperatureAverager());
 ```
+
+- 会话窗口
+
+会话窗口分配器将元素划分为**大小不同、互不重叠**的窗口，如下图所示，会话窗口的边界由session gap确定：
+
+<img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap06/A-Session-Window-Assigner-Example.png" title="A Session Window Assigner Example" />
+
+如下所示代码按照15分钟为gap划分会话窗口。**由于分配器不能立即将元素分配到对于会话窗口，它将每个元素划分到以其timestamp为起始时间、大小为gap的独立窗口，然后合并范围重叠的独立窗口。**
+
+```java
+sensorData.keyBy(_.id)
+           // create event-time session windows with a 15 min gap
+          .window(EventTimeSessionWindows.withGap(Time.minutes(15)))
+          .process(...)
+```
+
+### 窗口函数
+
+窗口函数对窗口内的元素进行计算，可分为两类：
+
+1. 增量聚合函数：每当新元素添加到窗口时触发，优点是节省空间，例如`ReduceFunction`和`AggregateFunction`。
+
+2. 全量窗口函数：窗口所有元素到齐后触发，占用空间多，例如`ProcessWindowFunction`。
+
+- ReduceFunction
+
+接收2个相同类型的元素并产生一个相同类型的新元素作为窗口状态，如下示例代码计算每隔15秒的最低温度：
+
+```java
+DataStream<Tuple2<String, Double>> minTempPerWindow = sensorData
+    .map(r -> new Tuple<String, Double>(r.id, r.temperature))
+    .keyBy(r -> r.f1)
+    .window(TumblingEventTimeWindows.of(Time.seconds(15)))
+    .reduce((r1, r2) -> (r1.f1, Math.min(r1.f2, r2.f2)));
+```
+
+- AggregateFunction
+
+AggregateFunction功能和ReduceFunction类似，但**输入、输出元素和状态元素的类型可以互不相同**，接口定义如下所示：
+
+```java
+public interface AggregateFunction<IN, ACC, OUT> extends Function, Serializable {
+
+  // create a new accumulator to start a new aggregate.
+  ACC createAccumulator();
+
+  // add an input element to the accumulator and return the accumulator.
+  ACC add(IN value, ACC accumulator);
+
+  // compute the result from the accumulator and return it.
+  OUT getResult(ACC accumulator);
+
+  // merge two accumulators and return the result.
+  ACC merge(ACC a, ACC b);
+}
+```
+
+- ProcessWindowFunction
+
+ReduceFunction和AggregateFunction用于增量式地处理窗口元素，而有些时候需要窗口所有元素到齐后才能处理，比如计算中位数，此时需要ProcessWindowFunction来处理。
+
+```java
+public abstract class ProcessWindowFunction<IN, OUT, KEY, W extends Window>
+        extends AbstractRichFunction {
+
+    /** Evaluates the window and outputs none or several elements. */
+    public abstract void process(
+            KEY key, Context context, Iterable<IN> elements, Collector<OUT> out) throws Exception;
+
+    /** Deletes any state in the Context when the Window expires. */
+    public void clear(Context context) throws Exception {}
+
+    /** The context holding window metadata. */
+    public abstract class Context implements java.io.Serializable {
+        /** Returns the window that is being evaluated. */
+        public abstract W window();
+
+        /** Returns the current processing time. */
+        public abstract long currentProcessingTime();
+
+        /** Returns the current event-time watermark. */
+        public abstract long currentWatermark();
+
+        /** State accessor for per-key and per-window state. */
+        public abstract KeyedStateStore windowState();
+
+        /** State accessor for per-key global state. */
+        public abstract KeyedStateStore globalState();
+
+        /** Emits a record to the side output identified by OutputTag. */
+        public abstract <X> void output(OutputTag<X> outputTag, X value);
+    }
+}
+```
+
+和ProcessFunction类似，WindowProcessFunction也提供了Context参数扩展函数功能。ProcessWindowFunction的Context对象提供窗口元信息(比如时间窗口的开始、结束时间)，以及窗口状态(Per-window State)和全局状态(Global state)。
+
+全局状态值指不属于任何窗口的键控状态，窗口状态指当前窗口示例的状态。使用窗口状态时需要实现clear()方法清除之前的窗口状态，而全局状态用于状态共享。
