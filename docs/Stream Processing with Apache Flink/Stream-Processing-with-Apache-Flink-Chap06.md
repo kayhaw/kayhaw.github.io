@@ -292,4 +292,36 @@ public abstract class ProcessWindowFunction<IN, OUT, KEY, W extends Window>
 
 和ProcessFunction类似，WindowProcessFunction也提供了Context参数扩展函数功能。ProcessWindowFunction的Context对象提供窗口元信息(比如时间窗口的开始、结束时间)，以及窗口状态(Per-window State)和全局状态(Global state)。
 
-全局状态值指不属于任何窗口的键控状态，窗口状态指当前窗口示例的状态。使用窗口状态时需要实现clear()方法清除之前的窗口状态，而全局状态用于状态共享。
+全局状态指不属于任何窗口的键控状态，窗口状态指当前窗口示例的状态。使用窗口状态时需要实现clear()方法清除之前的窗口状态，而全局状态用于状态共享。ProcessWindowFunction使用ListState存储状态，因此比ReduceFunction和AggregateFunction消耗更多的内存。
+
+- 增量聚合:plus:ProcessWindowFunction
+
+如果既想使用增量聚合又想获取窗口元信息，DataStream API提供重载的reduce()和aggregate()方法，将ProcessWindowFunction作为第二个参数传入，此时ProcessWindowFuncton的Iterable参数只有一个元素，即增量聚合后的结果，代码见`CalculateMinMaxTemp.java`。
+
+### 自定义窗口算子
+
+当内置窗口算子无法满复杂的应用逻辑时，DataStream API通过暴露接口支持自定义窗口算子。自定义窗口算子分为3个组件：
+
+- **分配器(WindowAssigner)**：将新接收的元素分配到对应的窗口，如果窗口不存在则创建。
+- **触发器(Trigger)**：新元素传递给窗口的同时也会给触发器，由其决定是否计算、清除窗口状态。触发器的行为取决于窗口函数。
+  - 增量聚合函数立即触发并发送，如下图所示：
+<img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap06/A-Window-Operator-with-an-Incremental-Aggregation-Function.png" title="A Window Operator with an Incremental Aggregation Function" />
+  - 全量窗口函数收集所有元素后处理，再发送结果，如下图所示：
+<img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap06/A-Window-Operator-with-a-Full-Window-Function.png" title="A Window Operator with a Full Window Function" />
+  - 增量函数:heavy_plus_sign:聚合函数，等于以上两者的结合体，如下图所示：
+<img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap06/A-Window-Operator-with-an-Incremental-Aggregation-and-Full-WIndow-Function.png" title="A Window Operator with an Incremental Aggregation and Full WIndow Function" />
+
+- **回收器(Evictor)**：可选组件，可在窗口函数执行前后注入，负责将窗口元素清空，只适用于全量窗口函数。
+
+尽管回收器是可选的，但是每个窗口算子都需要一个触发器，每个WindowAssigner都提供一个默认触发器。**注意自定义触发器并不是对默认触发器的补充，只有最后自定义的触发器才会生效**。
+
+### 窗口生命周期
+
+一个窗口由WindowAssigner创建，包含如下内容：
+
+- 窗口内容：所有属于窗口的元素或者增量聚合函数的结果
+- 窗口对象：WindowAssigner返回0，1或多个窗口对象，每个窗口对象包含各自区分的信息，比如窗口结束时间戳
+- 定时器：由触发器注册，用于执行回调，比如清空窗口内容
+- 自定义状态：触发器可以定义使用窗口状态，由触发器控制状态而不是窗口算子
+
+当到达结束时间，窗口算子删除窗口内容和窗口对象，但是不会清除自定义状态，需要在Trigger.clear()方法中实现。
