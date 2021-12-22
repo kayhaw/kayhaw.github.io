@@ -53,3 +53,111 @@ public interface ListCheckpointed<T extends Serializable> {
 :::caution ListCheckpointed和CheckedpointedFunction
 ListCheckpointed接口使用Java自带序列化机制，不支持状态迁移或者自定义序列化，使用CheckpointedFunction代替。
 :::
+
+### 使用连接广播状态
+
+广播状态顾名思义：每个任务示例都得到该状态的一份拷贝，适用于DataStream和KeyedStream。
+
+BroadcastProcessFunction、KeyedBroadcastProcessFunction与CoProcessFunction的不同之处在于它们的处理函数processElement()和processBroadcastElement()不是对称的，尽管两者的Context参数都能提供getBroadcastState(MapStateDescriptor)返回状态句柄，但是processElement()的状态句柄是只读的。
+
+### 使用CheckpointedFunction接口
+
+CheckpointedFunction是实现**有状态函数的最底层接口**，它支持键控状态和算子状态，并且是唯一能访问list union状态的接口：
+
+```java
+public interface CheckpointedFunction {
+    void snapshotState(FunctionSnapshotContext context) throws Exception;
+
+    void initializeState(FunctionInitializationContext context) throws Exception;
+}
+```
+
+- initializeState(FunctionInitializationContext context)：context对象提供OperatorStateStore和KeyedStateStore对象的访问，在task启动或者重启时调用。当函数注册状态，State store尝试从状态后端中恢复，如果是从保存点中恢复，状态初始化为上一次保存结果，如果状态后端没有，则初始化为空。
+
+- snapshotState(FunctionSnapshotContext context)：在检查点保存之前执行，context提供检查点id和时间戳。结合CheckpointListener接口，该方法可以将一致性状态写入到外部存储。
+
+### 接收检查点完成的通知
+
+为了减少同步的性能开销，Flink设计屏障机制让算子异步地执行检查点保存，当所有算子都完成检查点保存后才算一次成功的检查点保存。因此，只有JobManager才知道检查点是否成功。
+
+对于需要了解检查点是否完成的算子，需要实现CheckpointListener接口，该接口提供notifyCheckpointComplete(long chkpntId)方法作为检查点成功的回调。
+
+:::danger 小心
+Flink并不保证每一次成功的检查点都会回调notifyCheckpointComplete()。
+:::
+
+## 为有状态应用开启故障恢复
+
+在*检查点，保存点和状态恢复*中介绍了Flink创建一致性检查点的机制，JobManager周期性地进行检查点保存，间隔时间通过如下代码指定：
+
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+env.enableCheckpointing(10_000L);
+```
+
+检查点设置还有更多的调优项，比如一致性保证策略(精准一次还是至少一次)、检查点并发数、检查点保存超时时间等，这些在*检查点和故障恢复调优*中详细介绍。
+
+## 确保有状态应用的可维护性
+
+有状态应用可能执行数周，期间需要修改BUG、调整功能、缩放算子等操作，因此应用状态的迁移十分重要。Flink提供保存点来实现，同时要求所有状态提供如下两个参数：唯一的算子id和最大并行度。本节介绍如何设置这两个参数。
+
+### 指定唯一的算子id
+
+应用的每个算子都应该指定一个唯一的id，它作为元数据写入到保存点中。通过`uid()`方法指定：
+
+```java
+DataStream<Tuple3<String, Double, Double>> alerts =
+    sensorData.keyBy(r -> r.id)
+        .flatMap(new TemperatureAlertFunction(1.7))
+        .uid("TempAlert");
+```
+
+### 定义键控状态算子的最大并发度
+
+算子的最大并发度定义键控状态划分的组数，通过StreamExecutionEnvironment全局地设置最大并发数，或者在每个算子上设置：
+
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+// 通过env设置每个算子的最大并发度
+env.setMaxParallelism(512);
+// 单独设置算子的最大并发度
+DataStream<Tuple3<String, Double, Double>> alerts = keyedSensorData
+  .flatMap(new TemperatureAlertFunction(1.1))
+  .setMaxParallelism(1024);
+```
+
+算子默认的最大并发度max取决于第一版应用的算子并发度p：如果p小于等于128，max等于128；否则max=Min(2^15, nextPowerOfTwo(p+p/2))。
+
+## 有状态应用的性能和健壮性
+
+算子和状态交互的方式影响着应用的性能和健壮性，比如状态后端的选择、检查点算法配置、应用状态大小等。本节介绍如何确保长时间运行应用的健壮性和性能。
+
+### 选择状态后端
+
+状态后端是可插拔的——两个应用可以使用不同的状态后端实现，Flink目前提供如下3种状态后端：
+
+- **MemoryStateBakcend**：将状态以常规对象的形式存储在TaskManager的堆中。
+  - 优点：读写状态时延迟低
+  - 缺点：影响应用健壮性，如果状态过大会造成OOM，垃圾回收的暂停，易失性
+  - 总结：仅在开发和调试时使用
+- **FsStateBackend**：本地状态和MemoryStateBakcend一样放在TM的堆中，状态检查点保存在远程持久化文件系统中。
+  - 优点：兼具本地状态读写快和故障容错性
+  - 缺点：受TM内存大小限制，可能还是会受到垃圾回收暂停的影响
+- **RocksDBStateBackend**：将状态保存到**本地的**RocksDB实例中，状态检查点保存在远程持久化文件系统中。
+  - 优点：支持增量检查点，适用于状态巨大的应用
+  - 缺点：读写数据需要序列化/反序列化，相比于在堆中维护开销更高
+
+自定义状态后端只需要实现StateBackend接口，如下所示代码使用RocksDBStateBackend：
+
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+String checkpointPath = ...
+// configure path for checkpoints on the remote filesystem
+StateBackend backend = new RocksDBStateBackend(checkpointPath)
+// configure the state backend
+env.setStateBackend(backend)
+```
+
+### 选择状态原语
+
+对于需要序列化/反序列化状态对象的状态后端，状态原语的选择对应用的性能也有很大影响。以RocksDBStateBackend为例，读取ValueState各需要反序列化/序列化一次，读ListState需要对列表的每一项反序列化，而添加一个状态只需要序列化一个对象，读写MapState需要对key和value相对应的序列化/反序列化。因此，使用`MapState<X, Y>`比使用`ValueState<HashMap<X, Y>>`更高效，在写频率大于读频率时，使用`ListState<X>`比`ValueState<List<X>>`更高效。
