@@ -161,3 +161,60 @@ env.setStateBackend(backend)
 ### 选择状态原语
 
 对于需要序列化/反序列化状态对象的状态后端，状态原语的选择对应用的性能也有很大影响。以RocksDBStateBackend为例，读取ValueState各需要反序列化/序列化一次，读ListState需要对列表的每一项反序列化，而添加一个状态只需要序列化一个对象，读写MapState需要对key和value相对应的序列化/反序列化。因此，使用`MapState<X, Y>`比使用`ValueState<HashMap<X, Y>>`更高效，在写频率大于读频率时，使用`ListState<X>`比`ValueState<List<X>>`更高效。
+
+### 防止内存溢出
+
+Flink并不能自动清理状态、释放内存，因此算子需要控制状态大小防止内存溢出。状态不断增大的一个常见原因是键控状态，函数不确定当前记录是否为对应键的最后一条， 因此会一直保留键控状态。
+
+这个问题不仅出现在自定义状态函数上，也存在于DataStream API的内置算子中。比如在KeyedStream上的min、max等内置聚合操作，它们都会保存每个key对应的状态信息而不会丢弃，**因此使用这些函数需要确保key域是有限的**。
+
+如果key是动态变化的，可以通过定时器清理键控状态，示例代码见`SelfCleaningTemperatureAlert.java`。
+
+## 升级状态应用
+
+状态应用的升级通过兼容的保存点来完成，分为如下3种情况：
+
+1. 不修改、删除状态，只是修改应用逻辑，可以新增状态
+2. 删除状态
+3. 修改状态：更新状态原因、更新状态基本类型
+
+### 在不修改现有状态下更新应用
+
+没有删除、改变现有状态，应用一直是保存点兼容的，可以从旧版本中恢复。如果添加了新状态，状态将会初始化为空。
+
+:::caution 不能改变算子的基本类型
+修改算子的基本类型往往意味着修改内部状态，因此不是保存点兼容的。
+:::
+
+### 从应用中删除装状态
+
+默认情况下，删除状态意味着不是所有保存点状态都复原，此时Flink不会启动应用。可以禁用这个安全选项，此时升级应用时可行的。
+
+### 修改算子状态
+
+**添加、删除状态并不会影响保存点兼容型**，但是修改算子状态更复杂，有2种方式修改算子状态：
+
+- 修改状态的数据类型，比如从`ValueState<Int>`到`ValueState<Double>`。
+- 修改状态原语的类型，比如从`ValueState<List<String>>`到`ListState<String>`。
+
+修改状态的数据类型是可行的，但是Flink目前不支持修改状态的原语。以下重点介绍修改状态的数据类型：
+
+以`Value<String>`为例，当保存状态时，FLink根据状态数据类型String使用StringSerializer将String对象转为字节。如果将状态改为`Value<Double>`，那么Flink使用DoubleSerializer反序列化字节，显然这种操作会失败。
+
+## 查询状态
+
+许多应用需要和其他应用共享结果，一种常用方式是把结果写到数据库中让其他应用获取结果，但这意味着需要在维护一套单独的系统，Flink提供**可查询状态(Query State)**来处理。
+
+任何键控状态都可以通过**只读K-V存储**的形式暴露，外部应用可以在流应用还在运行时访问状态。注意，可查询状态不能解决所有需要外部存储的问题，当应用重启、缩放或者迁移时状态不可访问，**只支持单点查询而不是范围查询**，一般用于实现实时的监控应用。
+
+### 状态查询架构
+
+如下图所示，Flink的可查询状态服务分为如下3个进程：
+
+- **QueryableStateClient**：外部应用请求和获取状态的客户端。
+- **QueryableStateClientProxy**：每个TaskManager运行一个客户端代理，由于键控状态分布在各个算子示例，代理向JobManager请求键控组信息并缓存，然后从state server中获取状态。
+- **QueryableStateServer**：每个TaskManager都运行一个状态server，处理客户端代理的请求，返回状态信息。
+
+<img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap07/Architecture-of-Flink's-Queryable-State-Service.png" title="Architecture of Flink's Queryable State Service" />
+
+为了开启状态查询服务，需要将`$FLINK_HOME/lib/flink-queryable-state-runtime_xx.jar`复制到`$FLINK_HOME/lib`目录下，该jar包在classpath中时，状态查询线程会自动启动开启服务。
