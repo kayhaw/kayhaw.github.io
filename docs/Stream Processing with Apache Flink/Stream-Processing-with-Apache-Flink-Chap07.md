@@ -48,7 +48,7 @@ public interface ListCheckpointed<T extends Serializable> {
 }
 ```
 
-代码`chap7/HighTempCounter.java`演示使用RichFlatMapFunction和ListCheckpointed来计算高于某个温度值的传感器温度个数。**由于算子缩放时需要合并或拆分状态，因此算子状态以列表形式存在而不是单个值。**
+代码`HighTempCounter.java`演示使用RichFlatMapFunction和ListCheckpointed来计算高于某个温度值的传感器温度个数。**由于算子缩放时需要合并或拆分状态，因此算子状态以列表形式存在而不是单个值。**
 
 :::caution ListCheckpointed和CheckedpointedFunction
 ListCheckpointed接口使用Java自带序列化机制，不支持状态迁移或者自定义序列化，使用CheckpointedFunction代替。
@@ -62,7 +62,7 @@ BroadcastProcessFunction、KeyedBroadcastProcessFunction与CoProcessFunction的�
 
 ### 使用CheckpointedFunction接口
 
-CheckpointedFunction是实现**有状态函数的最底层接口**，它支持键控状态和算子状态，并且是唯一能访问list union状态的接口：
+CheckpointedFunction是实现**有状态函数的最底层接口**，它支持键控状态和算子状态，并且是**唯一能访问list union状态的接口**：
 
 ```java
 public interface CheckpointedFunction {
@@ -170,7 +170,7 @@ Flink并不能自动清理状态、释放内存，因此算子需要控制状态
 
 如果key是动态变化的，可以通过定时器清理键控状态，示例代码见`SelfCleaningTemperatureAlert.java`。
 
-## 升级状态应用
+## 升级有状态应用
 
 状态应用的升级通过兼容的保存点来完成，分为如下3种情况：
 
@@ -218,3 +218,52 @@ Flink并不能自动清理状态、释放内存，因此算子需要控制状态
 <img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap07/Architecture-of-Flink's-Queryable-State-Service.png" title="Architecture of Flink's Queryable State Service" />
 
 为了开启状态查询服务，需要将`$FLINK_HOME/lib/flink-queryable-state-runtime_xx.jar`复制到`$FLINK_HOME/lib`目录下，该jar包在classpath中时，状态查询线程会自动启动开启服务。
+
+## 暴露可查询状态
+
+从代码上实现暴露状态很简单，调用StateDescriptor对象的setQueryable()方法即可。如下代码所示：
+
+```java
+public void open(Configuration parameters) throws Exception {
+    ValueStateDescriptor<Double> lastTempDesc = new ValueStateDescriptor<>("lastTemp", Double.class);
+    // 暴露状态
+    lastTempDesc.setQueryable("lastTemperature");
+    lastTempState = getRuntimeContext().getState(lastTempDesc);
+}
+```
+
+另一种通用方式可以在任何类型的键控状态上开启查询，通过asQueryableState()方法实现，代码如下所示：
+
+```java
+DataStream<Tuple2<String, Double>> tenSecsMaxTemps = sensorData.map(r -> Tuple2.of(r.id, r.temperature))
+    .keyBy(r -> r.f0)
+    .window(TumblingEventTimeWindows.of(Time.seconds(10)))
+    .max(1);
+
+tenSecsMaxTemps.keyBy(r -> r.f0)
+    .asQueryableState("maxTemperature");
+```
+
+asQueryableState()方法提供的状态原语是ValueState，状态基本类型即输入流的基本类型。提供状态查询的应用和其他应用没有什么不同，只需要确保TaskManager开启状态查询服务。
+
+### 从外部应用中查询状态
+
+Flink提供QueryableStateClient类来访问状态，使用该类需要引入如下依赖，示例代码见`TemperatureDashboard.java`：
+
+```xml
+<dependency>
+  <groupid>org.apache.flink</groupid>
+  <artifactid>flink-queryable-state-client-java_2.12</artifactid>
+  <version>1.14.0</version>
+</dependency>
+```
+
+## 总结
+
+1. 键控状态只用于KeyedStream的处理函数
+2. 有状态函数需要实现CheckpointedFunction接口，在snapshotState和initializeState两个方法中分别保存状态和获取状态
+3. 实现CheckpointListener接口的函数使用notifyCheckpointComplete方法作为状态保存成功的回调，但是Flink不保证每次都会回调该方法
+4. 通过`uid()`和`setMaxParallelism()`分别指定算子id和并发度，能够确保应用的可维护性
+5. Flink状态后端(内存、文件系统，RocksDB或者自定义)、状态原语的选择影响着应用性能，为了防止状态导致的内存溢出，可以定时清理过期状态
+6. 升级状态应用最好只改逻辑或者新增状态，不要修改状态基本类型或者删除状态
+7. Flink提供状态查询框架让外部应用能够访问状态，需要配置Flink并在应用代码中暴露状态，访问状态的外部应用需要引入依赖包
