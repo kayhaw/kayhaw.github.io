@@ -277,3 +277,60 @@ Cassandra Sink连接器提供如下配置方法：
 - setQuery(String)：写入数据类型为Tuple、Row时使用，数据类型为POJO时不能配置
 - setMapperOptions(MapperOptions)：Cassandra对象映射器配置，比如TTL、null字段处理等，写入类型为Tuple、Row时忽略该配置
 - enableWriteAheadLog([CheckpointCommitter])：开启WAL以提供精准一次保证，CheckpointCommitter用于存储完成的检查点信息，如果没有则将检查点信息写入到特定的Cassandra表中，详见[事务型sink连接器]
+
+## 实现自定义Source函数
+
+DataSteam API提供2种接口来实现source连接器(每种接口派生RichFunction抽象类)：
+
+1. SourceFunction和RichSourceFunction：定义非并行化的source连接器，只在一个task上运行；
+2. ParallelSourceFunction和RichParallelSourceFunction：定义在多个并行任务上执行的source连接器。
+
+和处理函数一样，RichSourceFunction和RichParallelSourceFunction的子类可以重写open()和close()方法，并获取RuntimeContext参数，改参数能够提供并行任务的个数和当前任务示例的编号等信息。除此之外，这2个类还定义了如下2个方法：
+
+1. `void run(SourceContext<T> ctx)`：基于源端存储系统以push或pull的方式获取记录并发送到Flink应用。run()方法被Flink调用一次，然后在while循环中不断执行，可以被中断取消或者终止。
+2. `void cancel()`：当应用取消或者停止时调用。
+
+### 可重置Source函数
+
+可重置Source函数是Flink应用实现一致性保证的必要条件，它需要支持重放并在检查点保存读取位置。当应用重启时source函数从保存的读取位置重新读取，如果第一次启动没有保存状态，需要提供默认读取位置。
+
+从代码实现上看，可重置source函数一定要实现CheckpointedFunction接口，并将读取位置等元信息保存在算子list状态或者算子union list状态(两种状态的区别见[缩放有状态算子](xxx))。
+
+为了确保执行CheckpointedFunction.snapshotState()的线程和执行SourceFunction.run()的线程不会同时进行，使用SourceContext.getCheckpointLock()获得的对象锁来同步两者，示例代码见`ResettableCountSource.java`。
+
+### Source函数、时间戳和水印
+
+时间戳和水印既可以通过TimestampAssigner分配，也可以在source函数中产生并分配，通过run()方法的SourceContext参数对象分配时间戳和产生水印，SourceContext提供如下方法：
+
+- void collectWithTimestamp(T element, long timestamp)：发送带有时间戳的记录
+- void emitWatermark(Watermark watermark)：发送水印
+
+SourceFunction内置时间戳和水印除了免去额外的算子外，在source算子并行运行时也有好处。例如一个source函数从有6个分区的Kafka topic中以2个并行度读取记录，每个source示例会读取3个分区，这种多路复用就会导致额外的乱序性，导致更多延迟记录。为了避免这种情况，可以让source函数为每个分区流单独创建一个水印，并只发送最小水印。
+
+Source函数需要处理的另一种情况是某个source任务示例不在产生数据，导致水印不再增加进而整个应用停止。Flink通过将source函数标记为*暂时空闲(Temporarily Idle)*，此时根据水印传播机制会忽略由其产生的水印，如果source函数又重新开始发送数据，则又自动标记为*活跃(Active)*。Source函数通过调用`SourceContext.markAsTemporarilyIdle()`来标记自己为空闲状态。
+
+## 示例自定义Sink函数
+
+在DataStream API中，数据可以发送到任意外部系统或应用，不一定都流向sink算子。Flink使用SinkFunctioin接口(对应富函数为RichSinkFunction)表示sink算子，该接口只有一个方法：
+
+```java
+void invoke(IN value, Context ctx)
+```
+
+Context参数可以提供处理时间、水印和时间戳等信息。示例代码`SimpleSocketSink.java`演示如何将传感器数据写到socket中。
+
+正如之前讨论的，要实现端到端的一致性保证，sink函数需要实现幂等写或者事务写。由于socket只能追加的特性，不可能实现幂等写，而socket没有内置事务机制，所以只能通过WAL机制的事务写来完成。以下介绍如何实现幂等写和事务写连接器。
+
+### 幂等写sink连接器
+
+当满足如下两个条件，只需要SinkFunction就可以实现幂等写：
+
+1. 数据结果有一个确定的key，可以进行幂等更新
+2. 外部系统支持根据key更新，比如关系型数据库库和K-V存储系统
+
+### 事务写sink连接器
+
+事务写需要开启检查点机制，因为所有检查点完成后才会提交事务。为了快速实现事务写，DataStream API提供了2个事务写抽象类作为模板，它们都实现了CheckpointListener接口来获取JobManager发送的检查点完成通知：
+
+- **GenericWriteAheadSink**：将输出结果保存在算子状态中，当收到检查点完成通知后写入结果；
+- **TwoPhaseCommitSinkFunction**：利用外部系统的事务特性，当检查点完成后开启新事务并提交上一个事务。
