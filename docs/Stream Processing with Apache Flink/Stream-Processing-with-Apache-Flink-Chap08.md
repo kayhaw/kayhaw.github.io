@@ -334,3 +334,107 @@ Context参数可以提供处理时间、水印和时间戳等信息。示例代�
 
 - **GenericWriteAheadSink**：将输出结果保存在算子状态中，当收到检查点完成通知后写入结果；
 - **TwoPhaseCommitSinkFunction**：利用外部系统的事务特性，当检查点完成后开启新事务并提交上一个事务。
+
+#### GenericWriteAheadSink
+
+GenericWriteAheadSink与检查点机制配合实现精准一次性保证，但实际上它不能提供完美的精准一次保证而只能提供至少一次保证。
+
+GenericWriteAheadSink将收到的数据追加到日志中(WAL)，该日志由检查点分段并保存在算子状态中。当接收到检查点完成的通知，发送WAL中对应的记录并提交检查点。
+
+检查点提交分为2步：第一步，sink函数保存检查点已经提交的信息；第二步，从WAL中删除记录。由于状态不是持久化并且在发生故障时会重置，不能将提交信息保存在状态中，因此GenericWriteAheadSink依赖于CheckpointCommitter组件来保存和查找提交的检查点信息。
+
+扩展GenericWriteAheadSink的算子需要提供3个构造参数，如下代码所示：CheckpointCommitter用于保存检查点提交信息、TypeSerializer用于序列化输入记录、jobId
+
+```java
+public GenericWriteAheadSink(
+        CheckpointCommitter committer, TypeSerializer<IN> serializer, String jobID)
+        throws Exception {
+
+    this.committer = Preconditions.checkNotNull(committer);
+    this.serializer = Preconditions.checkNotNull(serializer);
+    this.id = UUID.randomUUID().toString();
+
+    this.committer.setJobId(jobID);
+    this.committer.createResource();
+
+    boolean sendValues(Iterable<IN> values, long chkpntId, long timestamp)
+}
+```
+
+除此之外，还需要实现sendValues()方法将记录写到外部系统。当所有记录写入成功返回true，否则返回false。
+
+:::cuation 注意
+GenericWriteAheadSink没有实现SinkFunction接口，因此不能使用DataStream.addSink()添加，但是可以作为DataStream.transform()方法。
+:::
+
+代码`StdOutWriteAheadSink.java`演示输出到文件的sink函数。GenericWriteAheadSink之所以不能提供完美的精准一次性保证，有以下2个原因：
+
+1. 当执行sendValues()方法时程序故障，有些记录已经输出但是其他没有，由于检查点没有提交，故障恢复重放所有记录，导致部分记录重复写入；
+2. sendValues()执行成功并返回true，但是在调用CheckpointCommitter提交检查点之前应用故障或者调用时发生故障，故障恢复也会导致部分记录重复写入。
+
+:::note
+以上故障场景并不影响Cassandra Sink连接器的精准一次性保证，因为Cassandra执行UPSERT写操作(存在则更新，不存在插入):star:。
+:::
+
+#### TwoPhaseCommitSinkFunction
+
+两阶段提交：
+
+阶段1（Voting Phase）：sink任务开启事务A，在事务A上下文中发送记录。当接收到JobManager发出的检查点barrier，sink任务保存状态并返回一条响应信息。
+
+阶段2：sink任务返回给JM一条响应信息后不会马上提交事务，因为不能保证此时其他算子也完成检查点保存。相反，sink任务会开始新事务B，在B上下文中发送记录。当JM接收到所有算子的检查点消息后，它会向所有“感兴趣”的算子(实现CheckpointedListener接口)发送一条检查点完成通知，此时sink任务提交所有历史检查点中仍在开放的事务。
+
+总结两阶段提交需要外部sink系统满足的条件有：
+
+1. 提供事务机制或者模拟事务的机制；
+2. 在检查点间隔期能够维持事务打开状态并接收记录；
+3. 事务必须等待提交，直到收到检查点完成通知；
+4. 支持sink任务回滚事务；
+5. 提交事务是幂等操作，即sink或者外部系统能够感知事务已经提交或者重复提交事务没有效果。
+
+代码`TransactionalFileSink.java`演示一个写入文件系统的TwoPhaseCommitSinkFunction，它是BucketingFileSink的简化版本。
+
+TwoPhaseCommitSinkFunction泛型类有3个类型参数：
+
+- IN：输入数据类型；
+- TXN：定义事务id的类型，故障恢复时用；
+- CONTEXT：可选的自定义上下文类型，示例代码不需要，设置为Void
+
+TwoPhaseCommitSinkFunction构造器需要2个TypeSerializer，分别用于TXN和CONTEXT。最后该类定义了5个需要实现的方法：
+
+1. **TXN beginTransaction()**：开启新事务并返回事务id，示例代码以文件名作为事务id；
+2. **void invoke(TXN transaction, IN value, Context context)**：向当前事务写记录；
+3. **void preCommit(TXN txn)**：预提交事务，此后事务不能再接收记录；
+4. **void commit(TXN transaction)**：提交事务，必须具有幂等性，即多次提交数据还是只写入一次；
+5. **void abort(TXN transaction)**：丢弃事务，可以在一次事务中调用2次。
+
+Flink内置Kafka Sink连接器也实现了TwoPhaseCommitSinkFunction接口，但是在超时导致事务回滚的情况下，也会出现数据丢失，因此也不能提供最佳的精准一次性保证。
+
+## 异步访问外部系统
+
+除了从外部系统吸收和发送数据流外，另一种常用使用场景是访问外部系统丰富数据流。比如Yahoo!流处理benchmark，它将一个广告点击数据流丰富为包含广告活动的数据流。
+
+一种常见的实现方式是使用MapFunction，该函数为每条记录创建一个同步查询并等待返回结果。显然这种方法MapFunction主要时间花费在等待查询结果上。
+
+Flink提供AsyncFunction来减缓远程I/O调用的延迟，它并发地发送多条查询并异步地处理结果。为了减少延迟，AsyncFunction可以配置其按照发送查询的顺序返回结果或者按照结果顺序原样返回。另外它也集成了检查点机制，并且确保即使使用了乱序结果，水印也不会被记录超过，因此能正确地处理事件时间语义。
+
+为了充分利用AsyncFunction，外部系统应该提供支持异步调用的客户端。如果只有同步客户端，可以通过多线程异步发送请求来处理。AsyncFunction接口如下：
+
+```java
+public interface AsyncFunction<IN, OUT> extends Function, Serializable {
+
+    void asyncInvoke(IN input, ResultFuture<OUT> resultFuture) throws Exception;
+
+}
+```
+
+通过AsyncDataStream的静态方法orderedWait()或unorderedWait()使用 AsyncFunction，前者按照接收记录的顺序返回对应的结果，而后者仅保证检查点barrier和水印对齐，示例代码见`DerbyAsyncFunctionDemo.java`。
+
+需要指出的是，AsyncFunction按照每个输入记录**顺序调用**而不是以多线程方式调用，因此asyncInvoke()应该在发送异步请求后立即返回，通过回调处理结果，需要避免的常见反例有：
+
+- 发送阻塞asyncInvoke()方法的同步请求
+- 发送异步请求但是在asyncInvoke()方法内部等待请求完成
+
+## 总结
+
+1. 精准一次=可重置source+有状态算子，端到端精准一次=精准一次+(幂等写OR事务写)
