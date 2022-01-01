@@ -208,3 +208,138 @@ high-availability.storageDir: hdfs:///flink/recovery
 # 推荐项，ZooKeeper中Flink集群基础路径，将Flink和其他使用ZooKeeper的框架隔离
 high-availability.zookeeper.path.root: /flink
 ```
+
+### 高可用Standalone模式设置
+
+Standalone模式不依赖资源提供方如YARN或者K8S，所有进程都是手动开启且没有监控、重启它们的组件，因此Flink standalone集群需要备用的Dispatcher和TaskManager进程来接管失败进程。
+
+除了启动备用TaskManager外，standalone部署不需要其他额外配置来让TaskManager从故障中恢复。所有启动的TaskManager登记到ResourceManager，通过备用TaskManager弥补故障TaskManager来恢复应用。
+
+当配置高可用后，所有Dispatcher登记到ZooKeeper并且由ZooKeeper选举leader Dispatcher来运行应用。当master进程发生故障，由ZooKeeper重新选举新的leader Dispatcher进行故障恢复。
+
+除了之前提到的配置外，开启高可用standalone模式配置需要在`${FLINK_HOME}/conf/flink-conf.yaml`中设置如下参数：
+
+```yaml
+# 推荐项，设置ZooKeeper中Flink集群的路径，区分不同的Flink集群
+# 如果多个Flink集群使用同一个ZooKeeper实例时必须设置
+high-availability.cluster-id: /cluster-1
+```
+
+接着在`${FLINK_HOME}/conf/master`文件中添加主机和端口，然后使用`start.sh`脚本启动高可用standalone集群。
+
+### 高可用YARN设置
+
+YARN是一种集群资源和容器的管理器，默认重启失败的容器，因此不需要运行备用的进程来实现高可用。Flink的master进程作为YARN ApplicationMater启动，YARN自动重启失败的ApplicationMater但但需要配置重启的最大次数来防止无限重启，这通过修改`yarn-site.xml`文件实现：
+
+```xml
+<property>
+  <name>yarn.resourcemanager.am.max-attempts</name>
+  <value>4</value>
+  <description>
+    The maximum number of application master execution attempts.
+    Default value is 2, i.e., an application is restarted at most once.
+  </description>
+</property>
+```
+
+此外，还需要修改flink-conf.yaml中应用重启次数参数，该参数必须小于等于yarn-site.xml配置的重启次数，如下所示：
+
+```yaml
+# 重启应用最多3次(包含初始化启动1次)
+yarn.application-attempts: 4
+```
+
+YARN只统计由于应用失败导致的重启次数，其他情况如抢占、硬件故障或者主机重启导致都不会计算到重启次数中。当使用YARN 2.6+版本，Flink还会自动配置一个有效尝试间隔参数：只有在间隔时间内达到重启次数才会完全取消应用。Flink将间隔参数设置为和conf.yaml文件中的akka.ask.timeout参数相同，默认10s。
+
+在配置好YARN和Flink后，执行`${FLINK_HOME}/bin/flink run -m yarn-cluster`命令以job模式启动Flink集群，或者通过`${FLINK_HOME}/bin/yarn-session.sh`以session模式启动Flink集群。**当以session模式启动Flink集群，需要为每个集群指定不同的id，而job模式下集群id自动设置为应用id，因此不会重复。**
+
+### 高可用K8S设置
+
+在按照[“Kubernets”](#Kubernets)一节部署运行Flink集群后，K8S会自动重启故障容器，这足以处理worker故障恢复，而处理master故障需要额外配置。正如之前提到的，需要修改Flink一些配置信息，比如ZooKeeper节点地址，持久化存储路径和集群id。并且官方提供的Flink镜像不能自定义配置，需要自己构建镜像。
+
+## 集成Hadoop组件
+
+Flink可以轻松地集成Hadoop组件如YARN、HDFS以及Hadoop生态组件如HBase，此时Flink需要其类路径上存在这些Hadoop依赖，有3种方式可以为Flink提供Hadoop依赖：
+
+1. 使用Flink官方为特定版本Hadoop构建的二进制发行版
+2. 自行为特定版本Hadoop构建Flink
+
+可能官方提供的发行版不能适配当前部署的Hadoop时，比如Hadoop版本不一致，或者当前使用其他发行商版本的Hadoop(例如Cloudera的CDH)。此时需要下载源码自行编译Flink自行编译，然后进入源码目录执行如下命令之一：
+
+```bash
+// 为特定版本的Apache Hadoop构建Flink
+mvn clean install -DskipTests -Dhadoop.version=2.6.1
+
+// 为特定版本的其他发行商Hadoop构建Flink
+mvn clean install -DskipTests -Pvendor-repos -Dhadoop.version=2.6.1-cdh5.0.0
+```
+
+构建好的二进制文件在`build-target`目录下。
+
+3. 使用Hadoop无关的Flink发行版，然后手动配置`HADOOP_CLASSPATH`环境变量，比如``export HADOOP_CLASSPATH=`hadoop classpath` ``
+
+处理配置Hadoop依赖路径外，**还需要提供Hadoop配置文件路径**，通过`HADOOP_CONF_DIR`(:heart:优先)或者`HADOOP_CONF_PATH`环境变量指定，这样Flink可以连接到YARN和HDFS服务。
+
+## 文件系统设置
+
+Flink在许多情况下都用到文件系统：比如文件系统source连接器、应用检查点保存、分发应用JAR包等。由于其分布式特性，Flink也要求文件系统能够全局访问，常用的有HDFS、S3和NFS。Flink使用`org.apache.flink.core.fs.FileSystem`类表示文件系统，它提供通用的文件操作：读写文件、创建文件夹、列出文件夹内容列表等。每个JobManager或TaskManger实例化一个FileSystem对象然后共享给本地所有任务，以此确保约束配置(如对打开连接数量的限制)生效。
+
+Flink提供了如下常用文件系统的实现：
+
+1. **本地文件系统**：Flink内置支持本地文件系统，包括本地挂载的网络文件系统(NFS或SAN等)，不需要额外配置，访问路径格式为`file://<URI>`；
+2. **Hadoop HDFS**：需要配置Hadoop依赖，见上一小节，访问路径格式为`hdfs://<URI>`;
+3. **Amazon S3**：Flink基于Apache Hadoop和Presto实现了2种访问S3的连接器，需要将位于opt文件夹下的`flink-s3-fs-hadoop-${version}.jar`和`flink-s3-fs-presto-${version}.jar`移到lib文件夹中，访问格式为`s3://<URI>`；
+4. **OpenStack Swift FS**：Flink基于Apache Hadoop实现Swift FS连接器，需要将opt文件夹下的`flink-swift-fs-hadoop-${version}.jar`移到lib文件夹中，访问格式为`swift://<URI>`。
+
+对于其他未列出的文件系统，通过正确配置，Flink可以委托HDFS连接器来访问，这也是为什么Flink能支持所有HCFS(Hadoop-compatible file systems)。在conf.yaml中可配置的文件系统相关参数如下表所示：
+
+| 参数名                             | 默认值     | 说明                                               |
+| --------------------------------   | -------   | -------------------------------------------------- |
+| `fs.default-scheme`                | `file://` | 默认文件系统前缀                                     |
+| `fs.<scheme>.limit.total`          | 无        | 特定scheme文件系统的连接总数限制，0或-1表示无限制      |
+| `fs.<scheme>.limit.input`          | 无        | 特定scheme文件系统的读连接数限制，0或-1表示无限制      |
+| `fs.<scheme>.limit.output`         | 无        | 特定scheme文件系统的写连接数限制，0或-1表示无限制      |
+| `fs.<scheme>.limit.timeout`        | 无        | 特定scheme文件系统的连接超时限制，单位毫秒，0表示无限制 |
+| `fs.<scheme>.limit.stream-timeout` | 无        | 特定scheme文件系统的限制时间限制，单位毫秒，0表示无限制 |
+
+自定义文件系统实现详见官方文档[Adding a new pluggable File System implementation](https://nightlies.apache.org/flink/flink-docs-stable/docs/deployment/filesystems/overview/#adding-a-new-pluggable-file-system-implementation)。
+
+## 系统配置
+
+Flink提供了许多参数来配置行为和调整性能，所有参数在`${FLINK_HOME}/conf/flink-conf.yaml`中以键值对的形式设置。该配置文件会被不同组件使用，比如集群启动脚本`/bin/start-cluster.sh`会读取JVM参数配置，CLI客户端`/bin/flink`会读取连接到master进程的连接信息，**修改配置文件需要重启Flink集群**。
+
+为了让Flink开箱即用，flink-conf.yaml文件预配置为本地启动Flink，在分布式环境下需要调整配置。本节介绍搭建Flink集群需要的配置，更多配置见[官方文档](https://nightlies.apache.org/flink/flink-docs-stable/docs/deployment/config/)。
+
+### Java环境和类加载
+
+Flink默认从`PATH`环境变量中找到java程序来启动进程，如果`PATH`环境变量中不存在Java或者想要换个Java版本，可以通过`JAVA_HOME`环境变量或者flink-conf.yaml中的`env.java.home`参数指定。除此之外，可以通过`env.java.opts`、`env.java.opts.jobmanager`以及`env.java.opts.taskmanager`设置启动进程的JVM参数。
+
+当运行带有外部依赖的作业时，类加载问题并不少见。Flink将每个作业的依赖类登记到分隔的用户加载器中，确保作业之间的依赖互不影响，也不影响Flink运行时，当作业结束后用户加载器也会被销毁。Flink系统加载器从`${FLINK_HOME}/lib`文件夹中加载所有JAR包，而用户类加载器派生自系统加载器。
+
+Flink加载类顺序由参数`classloader.resolve-order`指定，默认为`child-first` ，即Flink先通过用户类加载器解析依赖类然后通过系统加载器解析，避免应用使用和Flink相同的依赖但是版本不同的冲突。将该参数设置为`parent-first`，则顺序相反。
+
+:::caution 注意
+由`classloader.parent-first-patterns.default`指定的类总是由系统类加载器解析，通过`classloader.parent-first-patterns.additional`来添加更多这样的类
+:::
+
+### CPU
+
+Flink并不会主动限制其CPU资源使用，但会通过slot来控制任务数量。每个槽可以执行应用算子的一个并行任务，因此一个应用所需要的slot数量至少等于其所有算子的最大并行度。任务在TaskManager进程内以线程形式执行，并且尽量占用其所获得的资源。
+
+通过参数`taskmanager.numberOfTaskSlots`设置每个TaskManager提供的slot数量，默认为1。**slot数量通常只需要在standalone模式下配置，在集群资源管理器上运行Flink时可以启动很容易地在每个节点上穹顶多个TaskManager(slot数量为1)。**
+
+### 内存和网络缓冲
+
+Flink的master和worker进程有着不同的内存需求，前者管理计算资源并协调应用执行，而后者处理潜在的大量数据。因此，master进程的内存消耗处于中等，通过`jobmanager.heap.size`配置其堆内存(默认1GB)。
+
+Worker进程的内存设置更加复杂，最重要的堆大小通过`taskmanager.heap.size`参数设置。使用堆的对象包括TaskManager运行时、算子和函数以及传输的数据。注意一个task可能就耗光整个JVM堆内存，如果应用依赖许多包也会造成非堆内存的显著消耗。
+
+除了JVM外，Flink的网络栈也是内存消耗大户。Flink的网络栈基于Netty，它使用本地内存作为网络缓冲区。缓冲区的数量依赖于算子任务的连接方式和并发度，当缓冲区数量不够时作业提交后会抛出`java.io.IOException: Insufficient number of network buffers`异常。通过参数`taskmanager.network.memory.segment-size`指定网络缓冲区大小。
+
+:::caution 注意
+原书提到的`taskmanager.network.memory.fraction`、`taskmanager.network.memory.min`和`taskmanager.network.memory.max`参数已经删除，详见[Full TaskManagerOptions](https://nightlies.apache.org/flink/flink-docs-release-1.14/docs/deployment/config/#full-taskmanageroptions)
+:::
+
+当使用RocksDB作为状态后端时，**Flink会为每个task的键控算子创建一个单独的RocksDB实例**，默认配置下每个column族会消耗200MB到240MB的堆外内存，可以通过RocksDB的配置调整性能。
+
+当配置TaskManager的内存时，需要调整堆内存大小以便留有充足的堆外内存。**注意，一些资源管理器(如YARN)会在容器超出内存分配时立即终止容器。**
