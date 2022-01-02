@@ -1,6 +1,6 @@
 ---
 layout: article
-title: 为流应用部署Flink环境
+title: 部署Flink环境
 slug: /Stream-Processing-with-Apache-Flink/Chap09
 tags:
   - Stream Processing
@@ -60,6 +60,32 @@ docker run -d --name flink-taskmanager-1 \
 以上命令通过JOB_MANAGER_RPC_ADDRESS环境变量设置JobManager地址，通过`-p 8081:8081`参数将master容器8081端口映射到宿主机的8081端口，这样宿主机可以访问Flink Web UI来上传应用JAR包并执行应用，也可以通过`${FLINK_HOME}/bin/flink`命令提交管理应用。
 
 除了手动的启动多个容器来部署Flink集群，也可以创建Docker Compose配置文件来自动配置和启动Flink集群，但需要注意指定网络配置，详见Flink文档。
+
+### Apache Hadoop YARN
+
+YARN是Apache Hadoop体系的资源管理组件，它以容器的形式分配资源运行应用。Flink在YARN上以2种模式运行：job模式和session模式。
+
+Job模式下Flink作业执行流程如下图所示。YARN启动一个Flink集群来运行一个作业，当作业终止后，YARN会停止Flink集群并回收所有资源。
+
+<img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap09/Starting-a-Flink-Cluster-on-YARN-in-Job-Mode.png" title="Starting a Flink Cluster on YARN in Job Mode" />
+
+Session模式则会启动一个长期运行的Flink集群，该集群可以运行多个作业且需要手动停止。下图所示为空闲时的Flink Session模式：
+
+<img style={{width:"50%", height:"50%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap09/Starting-a-Flink-Cluster-on-YARN-in-Session-Mode.png" title="Starting a Flink Cluster on YARN in Session Mode" />
+
+如下图所示为Session模式下Flink作业执行流程。当slot数量不足时，Flink的ResourceManager向YARN ResourceManager请求分配容器资源来启动TaskManager。
+
+<img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap09/Submitting-a-Job-to-a-Flink-YARN-Session-Cluster.png" title="Submitting a Job to a Flink YARN Session Cluster" />
+
+无论是Job模式还是Session模式，运行失败的TaskManager都会被ResourceManager重启，而恢复master进程失败需要[配置高可用](#高可用设置)。另外，需要[配置Hadoop依赖](#集成hadoop组件)。
+
+当配置好YARN和HDFS后，使用命令以job模式运行作业：
+
+```bash
+./bin/flink run -m yarn-cluster ./path/to/job.jar
+```
+
+以session模式运行作业，首先要执行`./bin/yarn-session.sh`命令开启Flink YARN session，然后通过`./bin/flink run ./path/to/job.jar`运行作业。注意此时不需要提供连接信息，因为Flink记住了在YARN上运行的Flink会话的连接详情。
 
 ### Kubernetes
 
@@ -343,3 +369,42 @@ Worker进程的内存设置更加复杂，最重要的堆大小通过`taskmanage
 当使用RocksDB作为状态后端时，**Flink会为每个task的键控算子创建一个单独的RocksDB实例**，默认配置下每个column族会消耗200MB到240MB的堆外内存，可以通过RocksDB的配置调整性能。
 
 当配置TaskManager的内存时，需要调整堆内存大小以便留有充足的堆外内存。**注意，一些资源管理器(如YARN)会在容器超出内存分配时立即终止容器。**
+
+### 磁盘存储
+
+Flink worker进程在很多情况下使用本地文件系统存储数据，比如接收应用JAR包、写日志、状态维护等，相关的文件路径参数如下表所示：
+
+| 参数                             | 默认值                    | 说明                                                               |
+| -------------------------------- | ------------------------ | ------------------------------------------------------------------ |
+| `io.tmp.dirs`                    | `java.io.tmpdir`系统变量  | 在Linux和MacOS系统上默认为`/tmp`，该目录会被定时清理，建议重新社会     |
+| `env.log.dir`                    | `${FLINK_HOME}/log`      | TaskManager存储日志路径                                             |
+| `blob.storage.directory`         | 无                       | Blob server存储路径，用于交换大文件                                  |
+| `state.backend.rocksdb.localdir` | `io.tmp.dirs`            | RocksDB存储状态路径                                                 |
+
+### 检查点和状态后端
+
+所有检查点和状态后端的配置都可以通过代码执行，详见[检查点调整和故障恢复](xxx)，在配置文件中可设置的相关参数如下表所示：
+
+| 参数                                | 默认值               | 说明                                                                               |
+| ----------------------------------- | ------------------- | ---------------------------------------------------------------------------------- |
+| `state.backend`                     | 无                  | 状态后端类型，可选jobmanager，filesystem，rocksdb或者CheckpointStorageFactory工厂类名 |
+| `state.backend.async`               | `${FLINK_HOME}/log` | TaskManager存储日志路径                                                             |
+| `state.backend.incremental`         | false               | 是否开启增量检查点，不支持增量检查点的状态后端会忽略该配置                              |
+| `state.checkpoints.dir`             | 无                  | 检查点数据保存目录                                                                   |
+| `state.savepoints.dir`              | 无                  | 保存点数据保存目录                                                                   |
+| `state.backend.local-recovery`      | false               | 是否开启本地状态恢复，本地恢复目前只覆盖键控状态后端                                    |
+| `taskmanager.state.local.root-dirs` | 无                  | 本地状态副本文件保存目录，用于本地状态恢复                                             |
+
+### 安全
+
+在安全方面，Flink支持Kerberos认证以及通过SSL加密所有网络通信。Flink将Kerberos认证集成到Hadoop及其生态组件，如YARN、HDFS、HBase等，并支持2种认证模式：keytabs和Hadoop授权token。推荐使用keytabs，因为token有时效会导致作业运行失败。**注意证书是和Flink集群绑定而不是某个运行作业**，想要使用不同的证书应该新开一个Flink集群，详见[Kerberos Authentication Setup and Configuration](https://nightlies.apache.org/flink/flink-docs-release-1.14/docs/deployment/security/security-kerberos/)。
+
+Flink内部组件之间使用SSL互相认证通信，而Flink与外部系统的通信通过REST/HTTP端点实现，也可以用SSL加密对外通信，但推荐设置一个专门的代理服务。目前还不支持状态查询服务的加密和认证。默认SSL认证未开启，开启步骤详见[Configuring SSL ](https://nightlies.apache.org/flink/flink-docs-release-1.14/docs/deployment/security/security-ssl/#configuring-ssl)。
+
+## 总结
+
+1. Flink部署模式分为Standalone、K8S和YARN这3种
+2. Worker故障由Flink自行处理，但master故障恢复需要配置高可用
+3. 集成Hadoop组件有直接下载官方包、自行编译或者手动引入依赖3种方法
+4. 使用HDFS等文件系统需要将opt目录下对应jar包移到lib目录开启使用
+5. Flink详细的系统配置见[Configuration](https://nightlies.apache.org/flink/flink-docs-stable/docs/deployment/config/)
