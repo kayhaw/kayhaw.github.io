@@ -157,3 +157,168 @@ kubectl create -f job-cluster-service.yaml
 kubectl create -f job-cluster-job.yaml
 kubectl create -f task-manager-deployment.yaml
 ```
+
+## 控制任务调度
+
+Flink应用的性能依赖于任务调度：task分配给哪个worker进程、task之间配合关系、task实例数等都影响着应用性能。
+
+在[任务执行](Chap03/#任务执行)中介绍Flink如何给task分配slot以及利用task chaining减少数据交换开销。本节介绍如何调整默认行为以及控制task chaining、任务分配来改善应用性能。
+
+### 控制Task Chaining
+
+Flink默认开启task chaining机制，它将多个算子的并行任务融合为单个任务并以线程运行。融合任务之间通过方法调用实现数据交换，因此免去了通信开销。
+
+但是task chaining并不是对所有应用都有好处，比如运行开销高的函数就应该在不同slot上进行。此时可以通过如下代码禁用应用的task chaining：
+
+```java
+StreamExecutionEnvironment.disableOperatorChaining()
+```
+
+如果需要更细粒度的控制task chaining，可以在特定算子上调用`disableChaining()`方法，此时该算子不会和其前置、后继节点融合为chain。
+
+```java
+DataStream<Y> result = input
+  .filter(new Filter1())
+  .map(new Map1())
+  // disable chaining for Map2
+  .map(new Map2()).disableChaining()
+  .filter(new Filter2())
+```
+
+通过`startNewChain()`方法开启新task chain，此时节点与其后继节点融合为一个新chain：
+
+```java
+DataStream<Y> result = input
+  .filter(new Filter1())
+  .map(new Map1())
+  // start a new chain for Map2 and Filter2
+  .map(new Map2()).startNewChain()
+  .filter(new Filter2())
+```
+
+### 定义slot共享组
+
+Flink默认的任务调度策略是将程序的一个slice分配给一个slot，每个slice包含程序算子最多一个示例任务。这种默认策略可能会使某个slot负荷过大，Flink提供slot共享组机制能让用户手动的控制任务分配。
+
+Slot共享组与算子一一对应，同一共享组内的算子任务使用同一个slot。在Slot共享组内，每个slot只分配算子的一个task示例，因此**一个slot共享组所需的slot数量等于算子的最大并行度**。
+
+每个算子默认分配到*default*共享组，算子可以通过`slotSharingGroup(String)`显式指定共享组，如下代码所示。一个算子从其前置算子继承相同的共享组，否则是*default*组。
+
+```java
+// a设置slot共享组green
+DataStream<A> a = env.createInput(...)
+  .slotSharingGroup("green")
+  .setParallelism(4)
+DataStream<B> b = a.map(...)
+// b从a继承slot共享组green
+  .setParallelism(4)
+
+// c设置slot共享组yellow
+val c: DataStream[C] = env.createInput(...)
+  .slotSharingGroup("yellow")
+  .setParallelism(2)
+
+// d设置slot共享组blue
+val d: DataStream[D] = b.connect(c.broadcast(...)).process(...)
+  .slotSharingGroup("blue")
+  .setParallelism(4)
+val e = d.addSink()
+// e从d继承共享组blue
+  .setParallelism(2)
+```
+
+如上代码对应的物理流图如下所示，一共需要10个slot(4+4+2)。
+
+<img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap10/Controlling-Task-Scheduling-with-Slot-Sharing-Groups.png" title="Controlling Task Scheduling with Slot-sharing Groups" />
+
+## 调整检查点和故障恢复
+
+Flink通过周期性检查点确保容错性，但是检查点每次对状态进行快照的开销巨大。增加检查点间隔可以减少开销，但是也增加了程序恢复时处理的数据量。本节介绍如何通过Flink提供的参数调优检查点和状态后端性能。
+
+### 配置检查点
+
+首先在开启检查点的同时需要指定运行间隔，如下代码所示：
+
+```java
+StreamExecutionEnvironment env = ...
+// 开启间隔为10s的检查点
+env.enableCheckpointing(10000);
+```
+
+通过CheckpointConfig对象可以设置检查点的更多选项，它从StreamExecutionEnvironment中获取：
+
+```java
+CheckpointConfig cpConfig = env.getCheckpointConfig();
+```
+
+默认检查点提供精准一次性保证，也可以设置为至少一次，如下代码所示：
+
+```java
+// 设置检查点模式为至少一次
+cpConfig.setCheckpointingMode(CheckpointingMode.AT_LEAST_ONCE);
+```
+
+检查点可能会花费几分钟时间完成，这往往大于设置的间隔时间。默认情况下，Flink只允许一个检查点在保存，因此只有当上一个检查点结束后下一个检查点才会开始。为了确保不会有大量进程在进行检查点操作而不是计算，可以指定两个检查点之前的最小间隔，代码如下所示：
+
+```java
+// 设置检查点的最小间隔时间30s
+cpConfig.setMinPauseBetweenCheckpoints(30000);
+```
+
+有些情况下还是希望检查点按照指定间隔进行，即使它们花费时间大于间隔时间。比如外部数据流延迟高，导致检查点花费时间久但是消耗资源少。此时可以通过配置并发检查点的数量：
+
+```java
+// 允许最多3个检查点同时进行
+cpConfig.setMaxConcurrentCheckpoints(3);
+```
+
+:::tip 保存点不受检查点影响
+保存点和检查点同步进行，由于显式触发，保存点不会因为检查点而被延迟。
+:::
+
+为了避免检查点长时间运行，可以配置超时时间(默认10s)，如下所示：
+
+```java
+// 检查点必须在5分钟内完成，否则取消
+cpConfig.setCheckpointTimeout(300000);
+```
+
+最后，可以设置检查点失败后是否抛出异常终止任务，默认为true。
+
+```java
+// 检查点失败后应用继续运行
+cpConfig.setFailOnCheckpointingErrors(false);
+```
+
+#### 开启检查点压缩
+
+Flink支持对检查点和保存点进行压缩，目前还只支持Snappy压缩算法，通过如下代码开启：
+
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+// 开启检查点压缩
+env.getConfig.setUseSnapshotCompression(true)
+```
+
+:::caution 注意
+压缩对增量式检查点没有作用，因为增量检查点使用RocksDB内部格式，使用现成的snappy压缩。
+:::
+
+#### 在应用停止后保存检查点
+
+检查点用于应用故障时恢复，因此在应用失败或者取消时会清除检查点。此时可以通过**外部检查点(Externalized Checkpoints)**来继续保留检查点：
+
+```java
+// 开启检查点外部化
+cpConfig.enableExternalizedCheckpoints(
+  ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION)
+```
+
+检查点外部化有两种策略：
+
+1. **RETAIN_ON_CANCELLATION**：在应用完全失败或者取消时保留检查点
+2. **DELETE_ON_CANCELLATION**：只有在应用完全失败后才保留检查点，如果应用取消则删除检查点
+
+:::tip 小贴士
+外部化检查点并不是用来取代保存点，外部化检查点依赖状态后端并且不支持缩放。因此相比于保存点，外部化检查点恢复应用更加高效，但是没有那么灵活。
+:::
