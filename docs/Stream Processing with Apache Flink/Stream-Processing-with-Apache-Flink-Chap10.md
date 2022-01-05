@@ -322,3 +322,71 @@ cpConfig.enableExternalizedCheckpoints(
 :::tip 小贴士
 外部化检查点并不是用来取代保存点，外部化检查点依赖状态后端并且不支持缩放。因此相比于保存点，外部化检查点恢复应用更加高效，但是没有那么灵活。
 :::
+
+### 配置状态后端
+
+[状态后端](xxx)负责维护本地状态、执行检查点和保存点、应用恢复。Flink默认状态后端是MemoryStateBackend，它适用于本地部署Flink而不是生产环境。
+
+[检查点和状态后端](Chap09/#检查点和状态后端)介绍如何在flink-conf.yaml中指定使用的状态后端，也可以通过代码为某个应用指定：
+
+```java
+StreamExecutionEnvironment env = StreamExecutionEnvironment.ExecutionEnvironment();
+
+StateBackend memBackend = new MemoryStateBackend();
+StateBackend fsBackend = new FsStateBackend("file:///tmp/ckp", true);
+StateBackend rocksBackend = new RocksDBStateBackend("file:///tmp/ckp", true);
+
+env.setStateBackend(memBackend);
+```
+
+同样地，也可以在代码中状态后端的各种参数：
+
+```java
+// Flink内置的状态后端都是可配置的
+ConfigurableStateBackend backend = ...;
+
+val sbConfig = new Configuration()
+sbConfig.setBoolean("state.backend.async", true)
+sbConfig.setString("state.savepoints.dir", "file:///tmp/svp")
+
+val configuredBackend = backend.configure(sbConfig)
+```
+
+### 应用恢复配置
+
+当开启检查点的应用故障后，将会重启任务、恢复状态然后继续执行。由于故障期间源端数据累计，应用需要以更高速率处理数据流。因此，应用重启后需要更多资源来赶上速度，这也意味着应用平常处理时不能100%消耗资源。除了考虑资源使用外，接下来介绍应用恢复的另外两个重点：重启策略和本地恢复。
+
+#### 重启策略
+
+为了避免应用在恢复时循环重启，Flink提供如下3种重启策略：
+
+- **Fixed-delay**：重启固定次数，等待设置间隔后再次尝试
+- **Failure-rate**：不超过设置频率下重启
+- **No-restart**：不重启，直接报错
+
+设置重启策略代码如下所示，**默认重启策略为fixed-delay(尝试次数Integer.MAX_VALUE，间隔10s)。**
+
+```java
+val env = StreamExecutionEnvironment.getExecutionEnvironment
+
+env.setRestartStrategy(
+  RestartStrategies.fixedDelayRestart(
+    5,                            // 重启尝试次数
+    Time.of(30, TimeUnit.SECONDS) // 尝试间隔
+))
+```
+
+#### 本地恢复
+
+除了MemoryStateBackend，Flink的状态后端都将保存点放在远程文件系统，这样一是保存状态二是在工作节点失效时重新分配。但是远程恢复并不高效，*尤其是在同一个工作节点上恢复。*
+
+当应用在同一个机器上重启时，Flink提供**本地恢复(Local Recovery)**机制来加速应用恢复。当开启本地恢复时，状态后端除了将状态数据保存到远程系统，也会在本地磁盘保存一份。当应用重启，Flink试着在原来节点上运行任务，如果成功则从本地磁盘加载检查点数据，否则从远程存储获取。本地恢复失败则从远程获取，也相当于加了一层保险。但是任务只会承认远程写完成才算检查点成功。
+
+本地恢复可以在flink-conf.yaml中设置或者在应用代码中单独设置：
+
+- **state.backend.local-recovery**：是否开启本地恢复，默认false
+- **taskmanager.state.local.root-dirs**：状态在本地存放路径
+
+:::caution 注意
+本地恢复只对键控状态有效，算子状态不会被本地存储，同时也不支持MemoryStateBackend。
+:::
