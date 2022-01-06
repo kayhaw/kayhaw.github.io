@@ -390,3 +390,194 @@ env.setRestartStrategy(
 :::caution 注意
 本地恢复只对键控状态有效，算子状态不会被本地存储，同时也不支持MemoryStateBackend。
 :::
+
+## 监控Flink集群和应用
+
+Flink在运行时提供一套预定义的指标，并且也提供框架让用户能够自定义指标。
+
+### Flink Web UI
+
+通过`http://<jobmanager-hostname>:8081`即可访问Flink Web UI。
+
+### 指标系统
+
+Flink收集统计了应用和系统的一些指标，比如集群等级指标包括运行作业数、可用资源，作业指标包括运行时、重试次数和检查点信息，IO指标包括交互记录数，水印信息，连接器特定指标等。
+
+#### 注册并使用指标
+
+要注册指标首先得获取一个MetricGroup，它通过RuntimeContext的getMetrics()方法获得，代码如下所示：
+
+```java
+public static class PositiveFilter extends RichFilterFunction<Integer> {
+    private Counter counter;
+
+    @Override
+    public void open(Configuration parameters) throws Exception {
+        counter = getRuntimeContext().getMetricGroup().counter("droppedElements");
+    }
+
+    @Override
+    public boolean filter(Integer value) throws Exception {
+        if (value > 0) {
+            return true;
+        } else {
+            counter.inc();
+            return false;
+        }
+    }
+}
+```
+
+#### 指标组
+
+Flink指标通过MetricGroup接口来登记和访问，指标组提供如下指标类型：
+
+- **Counter**：统计数量指标，提供增加和减少的方法；
+- **Gauge**：统计某个时间点的指标，指标可以是任意类型，示例代码如下所示：
+
+```java
+public class WatermarkGauge implements Gauge<Long> {
+  private long currentWatermark = Long.MIN_VALUE;
+
+  public void setCurrentWatermark(long watermark) {
+    this.currentWatermark = watermark;
+    }
+
+  @Override
+  public Long getValue() {
+    return currentWatermark;
+  }
+}
+```
+
+:::danger 小心
+指标值会以String类型对外暴露，因此确保指标类型实现toString()方法。
+:::
+
+- **Histogram**：统计数值指标分布的直方图，可以计算总数量、最大/最小值、方差、平均值等；此外还可以结合DropWizard使用，需要引入依赖。
+
+```xml
+<dependency>
+  <groupId>org.apache.flink</groupId>
+  <artifactId>flink-metrics-dropwizard</artifactId>
+  <version>${flink-version}</version>
+</dependency>
+```
+
+```java
+// create and register histogram
+DropwizardHistogramWrapper histogramWrapper = 
+  new DropwizardHistogramWrapper(
+    new com.codahale.metrics.Histogram(new SlidingWindowReservoir(500)))
+metricGroup.histogram("myHistogram", histogramWrapper)
+
+// update histogram
+histogramWrapper.update(value)
+```
+
+- **Meter**：统计事件发生频率，也可以和DropWizard结合使用。
+
+#### 指标作用域和格式化
+
+指标的作用域(scope)可以是系统级或者用户级，访问指标的标志符包含3部分：指标名、可选的用户作用域、系统作用域。例如指标名myCounter、用户作用域MyMetrics、系统作用域localhost.taskmanager.512组成最后的标识是`localhost.taskmanager.512.MyMetrics.myCounter.`，分隔符可以通过`metrics.scope.delimiter`参数修改。
+
+系统作用域标识该指标对应的系统组件和上下文信息，比如JobManager、TaskManager、作业、算子和任务。可以在flink-conf.yaml文件中配置指标包含的上下文信息，如下所示：
+
+| 作用域        | 配置参数           | 默认值 |
+| ---------------- | ---------------------- | ---------------------- |
+| JobManager       | metrics.scope.jm       | <host\>.jobmanager |
+| JobManager和Job | metrics.scope.jm.job    | <host\>.jobmanager.<job_name\> |
+| TaskManager      | metrics.scope.tm       | <host\>.taskmanager.<tm_id\> |
+| TaskManager和Job | metrics.scope.tm.job   | <host\>.taskmana​​ger.<tm_id\>.<job_name\> |
+| Task             | metrics.scope.task     | <host\>.taskmanager.<tm_id\>.<job_name\>.<task_name\>.<subtask_index\> |
+| Operator         | metrics.scope.operator | <host\>.taskmanager.<tm_id\>.<job_name\>.<operator_name\>.<subtask_index\> |
+
+配置参数值由常量字符串(如“jobmanager”、“taskmanager”)和变量字符串(使用尖括号表示)组成，在运行时会替换为真实值。比如TaskManager的指标标志符就可能是localhost.taskmanager.512，512是TaskManager的id。如下表所示为不同作用域可以设置的变量：
+
+| 作用域      | 可用变量                                                                             |
+| ----------- | ----------------------------------------------------------------------------------- |
+| JobManager  | <host\>                                                                             |
+| TaskManager | <host\>, <tm_id\>                                                                   |
+| Job         | <job_id\>, <job_name\>                                                              |
+| Task        | <task_id\>, <task_name\>, <task_attempt_id\>, <task_attempt_num\>, <subtask_index\> |
+| Operator    | <operator_id\>, <operator_name\>, <subtask_index\>                                  |
+
+:::danger 小心
+可能多个相同Job同时运行，为了避免指标标识符重叠，使用包含<job_id>的标识符。
+:::
+
+#### 暴露指标
+
+Flink通过Reporter暴露指标，内置如下实现类：
+
+| Reporter              | 实现类                                                            |
+| --------------------- | ----------------------------------------------------------------- |
+| JMX                   | org.apache.flink.metrics.jmx.JMXReporter                          |
+| Graphite              | org.apache.flink.metrics.graphite.GraphiteReporter                |
+| Prometheus            | org.apache.flink.metrics.prometheus.PrometheusReporter            |
+| PrometheusPushGateway | org.apache.flink.metrics.prometheus.PrometheusPushGatewayReporter |
+| StatsD                | org.apache.flink.metrics.statsd.StatsDReporter                    |
+| Datadog               | org.apache.flink.metrics.datadog.DatadogHttpReporter              |
+| Slf4j                 | org.apache.flink.metrics.slf4j.Slf4jReporter                      |
+
+如果没有想要的实现类，通过实现接口`org.apache.flink.metrics.reporter.MetricReporter`来自定义Reporter。Reporter需要在flink-conf.yaml文件中配置才能生效：
+
+```yaml
+metrics.reporters: my_reporter
+Metrics.reporter.my_jmx_reporter.class: org.apache.flink.metrics.jmx.JMXReporter
+metrics.reporter.my_jmx_reporter.port: 9020-9040
+```
+
+### 监控延迟
+
+[延迟](Chap02/#延迟和吞吐量)是监控流应用的首要指标，它定义为事件处理所需的时间。但是现实中精准地统计延迟会带来问题，比如一个事件属于多个窗口，是要反馈第一次处理的延迟还是所有窗口都处理完的延迟呢？
+
+Flink不严格测量每个事件的延迟，它通过周期性地发送一条特殊记录来大致估算延迟，这条特殊记录称之为延迟标记(Latency Marker)。通过如下代码设置延迟标记的间隔：
+
+```java
+// 每个500毫秒发送一个延迟标记
+env.getConfig.setLatencyTrackingInterval(500L)
+```
+
+当接收到延迟标记，除sink算子外的所有算子**直接将其发送到下游**。延迟标记可以反映记录等待处理的时间，但是不能测量出记录处理时间或者在窗口缓冲区的等待时间。统计sink算子出的延迟标记可以估算出记录在数据流中遍历的时长，如果想要自定义延迟标记在算子处的行为，可以重写processLatencyMarker()方法。
+
+:::danger 小心
+
+1. 开启延迟指标会显著影响Flink集群性能，最好仅用于调试目的
+2. 开启延迟需要Flink集群所有机器时钟同步(比如使用NTP)，否则延迟估算不可靠
+:::
+
+## 日志配置
+
+[Flink日志](https://nightlies.apache.org/flink/flink-docs-release-1.14/docs/deployment/advanced/logging/)默认使用slf4j和log4j的组合，使用日志如下代码所示：
+
+```java
+import org.apache.flink.api.common.functions.MapFunction;
+import org.slf4j.LoggerFactory;
+import org.slf4j.Logger;
+
+public class MyMapFunction extends MapFunction<Integer, String> {
+
+  Logger LOG = LoggerFactory.getLogger(MyMapFunction.class)
+  
+  @Override
+  String map(Integer value) {
+    LOG.info("Converting value {} to string.", value)
+    return value.toString();
+  }
+}
+```
+
+修改log4j日志行为，对应的配置文件为`${FLINK_HOME}/conf/log4j.properties`，通过JVM参数`-Dlog4j.configuration=xxx`来指定一个配置文件。在conf目录下，还提供`log4j-cli.properties`文件配置命令行客户端日志，以及`log4j-yarn-session.properties`文件配置客户端启动YARN session时日志。
+
+Flink也支持使用logback，此时需要删除lib目录下log4j相关jar包，并加入logback-core和logback-classic的jar包。同样地，Flink在conf目录下提供了logback配置文件。
+
+## 总结
+
+1. 保存点是手动开启，对应存储系统上的一个路径
+2. /bin/flink脚本的参数和选项使用
+3. Flink默认开启task chainging机制，通过disableOperatorChaining()方法禁用，也可以通过slot共享组来控制
+4. 没有slot共享组，应用所需slot数量等于算子最大并行度；有slot共享组，slot数量等于每个共享组算子最大并行度之和
+5. 检查点开启及相关配置
+6. 通过指标信息监控Flink集群和应用
+7. 如何修改和配置Flink日志
