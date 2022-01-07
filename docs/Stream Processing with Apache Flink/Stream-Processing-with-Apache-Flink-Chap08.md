@@ -12,9 +12,9 @@ tags:
 
 ## 应用一致性保证
 
-在[检查点、保存点和状态恢复](xxx)一节中提到，Flink使用周期性检查点进行容错恢复。然而，应用的一致性状态还是不够，需要source和sink连接器也集成到Flink的检查点机制中，才能提供有意义的一致性保证。
+在[检查点、保存点和状态恢复](Chap03/#检查点保存点和状态恢复)一节中提到，Flink使用周期性检查点进行容错恢复。然而，应用的一致性状态还是不够，需要source和sink连接器也集成到Flink的检查点机制中，才能提供有意义的一致性保证。
 
-为了提供精准一次的一致性状态，source connector应该能重置到上次检查点的位置，否则应用重跑会丢失数据，即只提供最多一次保证。然而，要想实现端到端的精准一次性保证，可重置的source connector还是不够，需要sink connector实现两种特殊的写策略之一：**幂等写**和**事务写**。
+为了提供精准一次的一致性状态，source connector应该能重置到上次检查点的位置，否则应用重跑会丢失数据，即只提供最多一次保证。然而，要想实现端到端的精准一次性保证，可重置的source connector还是不够，需要sink connector实现两种特殊的写策略——**幂等写**和**事务写**——**其中之一**。
 
 ### 幂等写
 
@@ -294,7 +294,7 @@ DataSteam API提供2种接口来实现source连接器(每种接口派生RichFunc
 
 可重置Source函数是Flink应用实现一致性保证的必要条件，它需要支持重放并在检查点保存读取位置。当应用重启时source函数从保存的读取位置重新读取，如果第一次启动没有保存状态，需要提供默认读取位置。
 
-从代码实现上看，可重置source函数一定要实现CheckpointedFunction接口，并将读取位置等元信息保存在算子list状态或者算子union list状态(两种状态的区别见[缩放有状态算子](xxx))。
+从代码实现上看，可重置source函数一定要实现CheckpointedFunction接口，并将读取位置等元信息保存在算子list状态或者算子union list状态(两种状态的区别见[缩放状态算子](Chap03/#缩放状态算子))。
 
 为了确保执行CheckpointedFunction.snapshotState()的线程和执行SourceFunction.run()的线程不会同时进行，使用SourceContext.getCheckpointLock()获得的对象锁来同步两者，示例代码见`ResettableCountSource.java`。
 
@@ -309,7 +309,7 @@ SourceFunction内置时间戳和水印除了免去额外的算子外，在source
 
 Source函数需要处理的另一种情况是某个source任务示例不在产生数据，导致水印不再增加进而整个应用停止。Flink通过将source函数标记为*暂时空闲(Temporarily Idle)*，此时根据水印传播机制会忽略由其产生的水印，如果source函数又重新开始发送数据，则又自动标记为*活跃(Active)*。Source函数通过调用`SourceContext.markAsTemporarilyIdle()`来标记自己为空闲状态。
 
-## 示例自定义Sink函数
+## 实现自定义Sink函数
 
 在DataStream API中，数据可以发送到任意外部系统或应用，不一定都流向sink算子。Flink使用SinkFunctioin接口(对应富函数为RichSinkFunction)表示sink算子，该接口只有一个方法：
 
@@ -372,13 +372,13 @@ GenericWriteAheadSink没有实现SinkFunction接口，因此不能使用DataStre
 1. 当执行sendValues()方法时程序故障，有些记录已经输出但是其他没有，由于检查点没有提交，故障恢复重放所有记录，导致部分记录重复写入；
 2. sendValues()执行成功并返回true，但是在调用CheckpointCommitter提交检查点之前应用故障或者调用时发生故障，故障恢复也会导致部分记录重复写入。
 
-:::note
+:::tip
 以上故障场景并不影响Cassandra Sink连接器的精准一次性保证，因为Cassandra执行UPSERT写操作(存在则更新，不存在插入):star:。
 :::
 
 #### TwoPhaseCommitSinkFunction
 
-两阶段提交：
+两阶段提交顾名思义，分为如下2个阶段：
 
 阶段1（Voting Phase）：sink任务开启事务A，在事务A上下文中发送记录。当接收到JobManager发出的检查点barrier，sink任务保存状态并返回一条响应信息。
 

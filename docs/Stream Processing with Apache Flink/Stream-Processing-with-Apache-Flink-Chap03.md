@@ -1,7 +1,7 @@
 ---
 layout: article
 title: Apache Flink架构
-permalink: /Stream-Processing-with-Apache-Flink/Chap03
+slug: /Stream-Processing-with-Apache-Flink/Chap03
 tags:
   - Stream Processing
   - Apache Flink
@@ -104,7 +104,7 @@ Flink实现了基于credit的流控制机制提高效率：接收方向发送方
 
 ### 任务链
 
-当通信的task在同一个TaskManager内执行时，Flink使用任务链(Task Chaining)来降低开销。使用任务链优化必须满足两个要求：1. 多个算子具有相同并行度，2. 算子由本地通道连接，如下图所示：
+当通信的task在同一个TaskManager内执行时，Flink使用任务链(Task Chaining)来降低开销。使用任务链优化必须满足两个要求：**1. 多个算子具有相同并行度，2. 算子由本地通道连接**，如下图所示：
 
 <img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/An-Operator-Pipeline-Satisfies-the-Requirements-of-Task-Chaining.png" title="An Operator Pipeline Satisfies the Requirements of Task Chaining" />
 
@@ -227,7 +227,7 @@ Flink为算子状态提供3个原语：
 
 由于Flink是分布式系统并且状态仅在本地维护，当TaskManager故障时状态失效，因此需要状态检查点化将状态保存到远程存储。并且检查点化也有不同策略，比如RocksDB支持增量检查点，在状态体积很大时可以减少开销。
 
-有关状态后端更详细的讨论见第7章*选择状态后端*一节。
+有关状态后端更详细的介绍见[选择状态后端](Chap07/#选择状态后端)一节。
 
 ### 缩放状态算子
 
@@ -251,7 +251,7 @@ Flink为算子状态提供3个原语：
 
 ## 检查点、保存点和状态恢复
 
-介绍Flink如何通过检查点和恢复机制保证精准一次(exactly-once)的状态一致性。
+介绍Flink如何通过检查点和恢复机制实现精准一次(exactly-once)的状态一致性。
 
 ### 一致性检查点
 
@@ -281,7 +281,7 @@ Flink为算子状态提供3个原语：
 尽管会出现数据重复处理的情况，如上图中的6，但检查点恢复机制仍然达到精准一次的状态一致性，因为所有算子状态都被重置就好像6没有被处理过一样。
 
 :::caution 注意
-Flink的检查点机制仅重置内部(internal)算子状态，当sink operator是文件系统、数据库时结果可能会被发送多次。Flink也提供实现精准一次输出的sink function，在检查点保存完毕后以事务提交结果。这种要求更高的端到端精准一次性策略在第8章介绍。
+Flink的检查点机制仅重置内部(internal)算子状态，当sink operator是文件系统、数据库时结果可能会被发送多次。Flink也提供实现精准一次输出的sink function，在检查点保存完毕后以事务提交结果，详见[应用一致性保证](Chap08/#应用一致性保证)。
 :::
 
 ### Flink检查点算法
@@ -300,7 +300,7 @@ source operator收到barrier后，1)停止发送记录，2)触发检查点保存
 
 <img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Sources-Checkpoint-State-and-Emit-a-Checkpoint-Barrier.png" title="Sources Checkpoint State and Emit a Checkpoint Barrier" />
 
-类似于水印，source operator的barrier会被广播到所有任务确保每个任务都从其每个输入流中收到。当一个任务收到barrier后，它会等待其他所有输入的barrier。在等待过程中，任务继续处理还没有接收到barrier的分区流，而已经接收到barrier的分区流暂停处理并缓存其数据(称为**屏障对齐，Barrier Alignment**)，如下图所示。
+类似于水印，source operator的barrier会被广播到所有任务确保每个任务都从其每个输入流中收到。当一个任务收到barrier后，它会等待其他所有输入的barrier。在等待过程中，任务继续处理还没有接收到barrier的分区流，而已经接收到barrier的分区流暂停处理并缓存其数据(称为**屏障对齐，Barrier Alignment**)，如下图所示：
 
 <img style={{width:"60%", height:"60%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap03/Tasks-Wait-to-Receive-a-Barrier-on-Each-Input-Partition.png" title="Tasks Wait to Receive a Barrier on Each Input Partition" />
 
@@ -357,8 +357,8 @@ Flink通过周期性的检查点快照来实现故障恢复，保存点(savepoin
 
 ## 总结
 
-1. Flink的流控制类似TCP流量控制，双方按照自己能接收的窗口大小(credit)通信
-2. 水印的传播机制：先更新分区水印，再更新task事件时间，事件时间增加则触发计算并向下游广播该水印
-3. 算子状态与task实例关联，键控状态与记录管理，它们都由状态后端维护；状态算子的缩放策略根据状态类型而定
-4. 检查点流程：源端插入检查点，检查点对齐，检查点保存，检查点恢复
-5. 检查点和保存点的区别：检查点是一种特殊的保存点
+1. Flink的流控制类似TCP流量控制，双方按照自己能接收的窗口大小(credit)通信；
+2. 水印的传播机制：先更新分区水印，再更新task事件时间，事件时间增加则触发计算并向下游广播该水印；
+3. 算子状态与task实例关联，键控状态与记录管理，它们都由状态后端维护；状态算子的缩放策略根据状态类型而定；
+4. 检查点流程：源端插入检查点，检查点对齐，检查点保存，检查点恢复；
+5. 检查点和保存点的区别：检查点是一种特殊的保存点。

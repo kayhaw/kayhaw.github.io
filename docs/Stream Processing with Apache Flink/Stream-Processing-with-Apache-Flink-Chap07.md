@@ -1,7 +1,7 @@
 ---
 layout: article
 title: Stateful Operators and Applications
-permalink: /Stream-Processing-with-Apache-Flink/Chap07
+slug: /Stream-Processing-with-Apache-Flink/Chap07
 tags:
   - Stream Processing
   - Apache Flink
@@ -15,9 +15,9 @@ tags:
 
 本章介绍如何实现有状态的用户自定义函数，并讨论有状态应用的性能和健壮性。
 
-## 实现有状态函数
+## 实现状态函数
 
-在状态管理中介绍到函数状态可分为键控状态和算子状态两类，Flink提供多种接口来定义有状态函数。
+在[状态管理](Chap03/#状态管理)中介绍到函数状态可分为键控状态和算子状态两类，Flink提供多种接口来定义状态函数。
 
 ### 在RuntimeContext中声明键控状态
 
@@ -88,14 +88,14 @@ Flink并不保证每一次成功的检查点都会回调notifyCheckpointComplete
 
 ## 为有状态应用开启故障恢复
 
-在*检查点，保存点和状态恢复*中介绍了Flink创建一致性检查点的机制，JobManager周期性地进行检查点保存，间隔时间通过如下代码指定：
+在[检查点、保存点和状态恢复](Chap03/#检查点保存点和状态恢复)中介绍了Flink创建一致性检查点的机制，JobManager周期性地进行检查点保存，间隔时间通过如下代码指定：
 
 ```java
 StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 env.enableCheckpointing(10_000L);
 ```
 
-检查点设置还有更多的调优项，比如一致性保证策略(精准一次还是至少一次)、检查点并发数、检查点保存超时时间等，这些在*检查点和故障恢复调优*中详细介绍。
+检查点设置还有更多的调优项，比如一致性保证策略(精准一次还是至少一次)、检查点并发数、检查点保存超时时间等，这些在[检查点和故障恢复调优](Chap10/#调整检查点和故障恢复)中详细介绍。
 
 ## 确保有状态应用的可维护性
 
@@ -134,7 +134,7 @@ DataStream<Tuple3<String, Double, Double>> alerts = keyedSensorData
 
 ### 选择状态后端
 
-状态后端是可插拔的——两个应用可以使用不同的状态后端实现，Flink目前提供如下3种状态后端：
+[状态后端](Chap03/#状态后端)是可插拔的——两个应用可以使用不同的状态后端实现，Flink目前提供如下3种状态后端：
 
 - **MemoryStateBakcend**：将状态以常规对象的形式存储在TaskManager的堆中。
   - 优点：读写状态时延迟低
@@ -260,10 +260,10 @@ Flink提供QueryableStateClient类来访问状态，使用该类需要引入如�
 
 ## 总结
 
-1. 键控状态只用于KeyedStream的处理函数
-2. 有状态函数需要实现CheckpointedFunction接口，在snapshotState和initializeState两个方法中分别保存状态和获取状态
-3. 实现CheckpointListener接口的函数使用notifyCheckpointComplete方法作为状态保存成功的回调，但是Flink不保证每次都会回调该方法
-4. 通过`uid()`和`setMaxParallelism()`分别指定算子id和并发度，能够确保应用的可维护性
-5. Flink状态后端(内存、文件系统，RocksDB或者自定义)、状态原语的选择影响着应用性能，为了防止状态导致的内存溢出，可以定时清理过期状态
-6. 升级状态应用最好只改逻辑或者新增状态，不要修改状态基本类型或者删除状态
-7. Flink提供状态查询框架让外部应用能够访问状态，需要配置Flink并在应用代码中暴露状态，访问状态的外部应用需要引入依赖包
+1. 键控状态只用于KeyedStream的处理函数；
+2. 有状态函数需要实现CheckpointedFunction接口，在snapshotState和initializeState两个方法中分别保存状态和获取状态；
+3. 实现CheckpointListener接口的函数使用notifyCheckpointComplete方法作为状态保存成功的回调，但是Flink不保证每次都会回调该方法；
+4. 通过`uid()`和`setMaxParallelism()`分别指定算子id和并发度，能够确保应用的可维护性；
+5. Flink状态后端(内存、文件系统，RocksDB或者自定义)、状态原语的选择影响着应用性能，为了防止状态导致的内存溢出，可以定时清理过期状态；
+6. 升级状态应用最好只改逻辑或者新增状态，不要修改状态基本类型或者删除状态；
+7. Flink提供状态查询框架让外部应用能够访问状态，需要配置Flink并在应用代码中暴露状态，访问状态的外部应用需要引入依赖包。

@@ -325,7 +325,7 @@ cpConfig.enableExternalizedCheckpoints(
 
 ### 配置状态后端
 
-[状态后端](xxx)负责维护本地状态、执行检查点和保存点、应用恢复。Flink默认状态后端是MemoryStateBackend，它适用于本地部署Flink而不是生产环境。
+[状态后端](Chap07#选择状态后端)负责维护本地状态、执行检查点和保存点、应用恢复。Flink默认状态后端是MemoryStateBackend，它适用于本地部署Flink而不是生产环境。
 
 [检查点和状态后端](Chap09/#检查点和状态后端)介绍如何在flink-conf.yaml中指定使用的状态后端，也可以通过代码为某个应用指定：
 
@@ -574,10 +574,10 @@ Flink也支持使用logback，此时需要删除lib目录下log4j相关jar包，
 
 ## 总结
 
-1. 保存点是手动开启，对应存储系统上的一个路径
-2. /bin/flink脚本的参数和选项使用
-3. Flink默认开启task chainging机制，通过disableOperatorChaining()方法禁用，也可以通过slot共享组来控制
-4. 没有slot共享组，应用所需slot数量等于算子最大并行度；有slot共享组，slot数量等于每个共享组算子最大并行度之和
-5. 检查点开启及相关配置
-6. 通过指标信息监控Flink集群和应用
-7. 如何修改和配置Flink日志
+1. 保存点是手动开启，对应存储系统上的一个路径；
+2. /bin/flink脚本的参数和选项使用；
+3. Flink默认开启task chainging机制，通过disableOperatorChaining()方法禁用，也可以通过slot共享组来控制；
+4. 没有slot共享组，应用所需slot数量等于算子最大并行度；有slot共享组，slot数量等于每个共享组算子最大并行度之和；
+5. 检查点开启及相关配置；
+6. 通过指标信息监控Flink集群和应用；
+7. 如何修改和配置Flink日志。

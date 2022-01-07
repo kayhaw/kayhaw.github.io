@@ -1,7 +1,7 @@
 ---
 layout: article
 title: Time-Based and Window Operators
-permalink: /Stream-Processing-with-Apache-Flink/Chap06
+slug: /Stream-Processing-with-Apache-Flink/Chap06
 tags:
   - Stream Processing
   - Apache Flink
@@ -497,10 +497,10 @@ DataStream API提供如下策略来处理延迟数据，示例代码见`HandleLa
 
 ## 总结
 
-1. 时间语义默认为事件时间可以不设置，使用WatermarkStrategy来设置水印和时间戳
-2. 处理函数比转换函数功能更加丰富：获取水印，设置/删除定时器，侧输出等。
-3. 一般使用窗口操作只需要指定分配器和提供窗口函数：内置实现的分配器有滚动、滑动和会话，窗口函数分为增量聚合函数(ReduceFunction、AggregateFunction)和全量窗口函数(ProcessWindowFunction)两类。
-4. 自定义窗口算子分为3个组件：分配器、触发器和回收器。自定义组件即实现WindowAssigner、Trigger、Evictor这些接口(抽象类)。
-5. 触发器的4种结果：CONTINUE、FIRE、PURGE和FIRE_AND_PURGE影响窗口算子下一步操作。回收器是可选组件，通常用于GlobalWindow。
-6. 按时间语义连接流的2种方式：间隔连接和窗口连接
+1. 时间语义默认为事件时间可以不设置，使用WatermarkStrategy来设置水印和时间戳；
+2. 处理函数比转换函数功能更加丰富：获取水印，设置/删除定时器，侧输出等；
+3. 一般使用窗口操作只需要指定分配器和提供窗口函数：内置实现的分配器有滚动、滑动和会话，窗口函数分为增量聚合函数(ReduceFunction、AggregateFunction)和全量窗口函数(ProcessWindowFunction)两类；
+4. 自定义窗口算子分为3个组件：分配器、触发器和回收器。自定义组件即实现WindowAssigner、Trigger、Evictor这些接口/抽象类；
+5. 触发器的4种结果：CONTINUE、FIRE、PURGE和FIRE_AND_PURGE影响窗口算子下一步操作。回收器是可选组件，通常用于GlobalWindow；
+6. 按时间语义连接流的2种方式：间隔连接和窗口连接；
 7. 处理延迟数据的3种策略：丢弃、重定向和更新结果。重定义可以用sideOutputLateData()或者在ProcessFunction中实现，更新结果需要设置额外延迟事件。

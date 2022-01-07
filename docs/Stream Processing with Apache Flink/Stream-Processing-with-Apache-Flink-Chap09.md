@@ -77,7 +77,7 @@ Session模式则会启动一个长期运行的Flink集群，该集群可以运�
 
 <img style={{width:"80%", height:"80%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap09/Submitting-a-Job-to-a-Flink-YARN-Session-Cluster.png" title="Submitting a Job to a Flink YARN Session Cluster" />
 
-无论是Job模式还是Session模式，运行失败的TaskManager都会被ResourceManager重启，而恢复master进程失败需要[配置高可用](#高可用设置)。另外，需要[配置Hadoop依赖](#集成hadoop组件)。
+无论是Job模式还是Session模式，运行失败的TaskManager都会被ResourceManager重启，而恢复master进程失败需要[配置高可用](Chap03/#高可用设置)。另外，需要[配置Hadoop依赖](#集成hadoop组件)。
 
 当配置好YARN和HDFS后，使用命令以job模式运行作业：
 
@@ -213,7 +213,7 @@ kubectl delete -f master-service.yaml
 
 大多数流应用在理想情况下一直执行，因此需要能自动地从故障中恢复。Worker故障由ResourceManager处理，而JobManager故障需要配置高可用(Highly Available, HA)。
 
-JobManager持有应用的元数据，如应用JAR包、JobGraph、保存检查点的指针等，这些信息需要从master故障中恢复。Flink的HA模式依赖于Apache ZooKeeper和持久化存储服务(HDFS、NFS、或S3等)，详见[高可用配置](xxx)。为了方便用户调试，Flink提供`${FLINK_HOME}/bin/start-zookeeper-quorum.sh`脚本快速启动ZooKeeper集群，前提是在`${FLINK_HOME}/conf/zoo.cfg`中配置好ZooKeeper的地址和端口号。
+JobManager持有应用的元数据，如应用JAR包、JobGraph、保存检查点的指针等，这些信息需要从master故障中恢复。Flink的HA模式依赖于Apache ZooKeeper和持久化存储服务(HDFS、NFS、或S3等)，详见[高可用配置](Chap03/#高可用设置)。为了方便用户调试，Flink提供`${FLINK_HOME}/bin/start-zookeeper-quorum.sh`脚本快速启动ZooKeeper集群，前提是在`${FLINK_HOME}/conf/zoo.cfg`中配置好ZooKeeper的地址和端口号。
 
 :::caution 注意
 别直接在生产环境中使用Flink提供的ZooKeeper脚本，而是另外维护一个ZooKeeper集群。
@@ -281,7 +281,7 @@ YARN只统计由于应用失败导致的重启次数，其他情况如抢占、�
 
 ### 高可用K8S设置
 
-在按照[“Kubernets”](#Kubernets)一节部署运行Flink集群后，K8S会自动重启故障容器，这足以处理worker故障恢复，而处理master故障需要额外配置。正如之前提到的，需要修改Flink一些配置信息，比如ZooKeeper节点地址，持久化存储路径和集群id。并且官方提供的Flink镜像不能自定义配置，需要自己构建镜像。
+在按照[Kubernetes](#kubernetes)一节部署运行Flink集群后，K8S会自动重启故障容器，这足以处理worker故障恢复，而处理master故障需要额外配置。正如之前提到的，需要修改Flink一些配置信息，比如ZooKeeper节点地址，持久化存储路径和集群id。并且官方提供的Flink镜像不能自定义配置，需要自己构建镜像。
 
 ## 集成Hadoop组件
 
@@ -383,7 +383,7 @@ Flink worker进程在很多情况下使用本地文件系统存储数据，比�
 
 ### 检查点和状态后端
 
-所有检查点和状态后端的配置都可以通过代码执行，详见[检查点调整和故障恢复](xxx)，在配置文件中可设置的相关参数如下表所示：
+所有检查点和状态后端的配置都可以通过代码执行，详见[调整检查点和故障恢复](Chap10/#调整检查点和故障恢复)，在配置文件中可设置的相关参数如下表所示：
 
 | 参数                                | 默认值               | 说明                                                                               |
 | ----------------------------------- | ------------------- | ---------------------------------------------------------------------------------- |
@@ -403,8 +403,8 @@ Flink内部组件之间使用SSL互相认证通信，而Flink与外部系统的�
 
 ## 总结
 
-1. Flink部署模式分为Standalone、K8S和YARN这3种
-2. Worker故障由Flink自行处理，但master故障恢复需要配置高可用
-3. 集成Hadoop组件有直接下载官方包、自行编译或者手动引入依赖3种方法
-4. 使用HDFS等文件系统需要将opt目录下对应jar包移到lib目录开启使用
-5. Flink详细的系统配置见[Configuration](https://nightlies.apache.org/flink/flink-docs-stable/docs/deployment/config/)
+1. Flink部署模式分为Standalone、K8S和YARN这3种；
+2. Worker故障由Flink自行处理，但master故障恢复需要配置高可用；
+3. 集成Hadoop组件有直接下载官方包、自行编译或者手动引入依赖3种方法；
+4. 使用HDFS等文件系统需要将opt目录下对应jar包移到lib目录开启使用；
+5. Flink详细的系统配置见[Configuration](https://nightlies.apache.org/flink/flink-docs-stable/docs/deployment/config/)。

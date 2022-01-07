@@ -1,7 +1,7 @@
 ---
 layout: article
 title: DataStream API(v.14.0)
-permalink: /Stream-Processing-with-Apache-Flink/Chap05
+slug: /Stream-Processing-with-Apache-Flink/Chap05
 tags:
   - Stream Processing
   - Apache Flink
@@ -45,7 +45,7 @@ StreamExecutionEnvironment remoteEnv = StreamExecutionEnvironment.createRemoteEn
 得到执行环境env后，可以设置其各种参数配置，比如通过`env.setParallelism(2)`设置全局并发度。
 
 :::caution 注意
-原书使用`env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)`设置使用事件时间，但自Flink 1.12事件时间已是默认，故省略。
+原书使用`env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)`设置使用事件时间语义，但自Flink 1.12开始它已经是默认的，故省略该行代码。
 :::
 
 ### 读取输入流
@@ -88,20 +88,20 @@ DataStream<SensorReading> avgTemp = sensorData
 流应用可以把结果输出到外部系统，比如Apache Kafka，文件系统或者数据库。Flink提供各种现用的sink实现，也可以自定义sink。此外，可以将结果保存在内部通过Flink状态查询获取。在示例代码中通过`avgTemp.print()`打印结果。
 
 :::caution 注意
-无论应用提供至少一次还是精准一次语义，sink的实现直接影响端到端一致性，详见第8章应用一致性保障。
+无论应用提供至少一次还是精准一次语义，sink的实现直接影响端到端一致性，详见[应用一致性保证](Chap08/#应用一致性保证)。
 :::
 
 ### 执行
 
-Flink应用实施*懒执行*策略，调用source、转换、sink操作不会立即执行，它们只是用于构建执行计划。只有调用`execute`方法才会触发应用执行，如`env.execute("计算传感器平均温度")`。
+Flink应用实施**懒执行**策略，调用source、转换、sink操作不会立即执行，它们只是用于构建执行计划。只有调用`execute`方法才会触发应用执行，如`env.execute("计算传感器平均温度")`。
 
 执行计划被翻译为JobGraph并提交给JobManager，根据执行环境的不同，JobManager启动一个本地线程或者JobGraph传到一个远程JobManager执行。
 
 ## 转换操作
 
-本节只介绍简单的转换操作。流的转换操作指将1至多个流转换为1至多个流，编写DataStream API应用说到底就是将通过一系列转换操作创建数据流图来实现应用逻辑。
+本节只介绍简单的转换操作。流的转换操作指将1至多个流转换为1至多个流，编写DataStream API应用说到底就是通过一系列转换操作创建数据流图来实现应用逻辑。
 
-大多数转换操作基于用户自定义方法(User-Defined Function, UDF)，UDF本质上是一个函数式接口(也称SAM接口，Single Abstract Method)，因此可以用lambda表达式实现。DataStream API提供的转换操作可分为如下4类：
+大多数转换操作基于**用户自定义方法(User-Defined Function, UDF)**，UDF本质上是一个函数式接口(也称SAM接口，Single Abstract Method)，因此可以用lambda表达式实现。DataStream API提供的转换操作可分为如下4类：
 
 - 基本转换，作用于单个事件
 - KeyedStream转换，作用于主键关联的事件
@@ -201,11 +201,11 @@ DataStream<String> splitIds = sensorIds
 
 ### KeyedStream转换
 
-在流应用中一种常见要求是按照某个属性将事件分组并操作，为此DataStream API提供KeyedStream抽象(以下代码见KeyedTransformations.java)
+在流应用中一种常见要求是按照某个属性将事件分组并操作，为此DataStream API提供KeyedStream抽象(代码见KeyedTransformations.java)
 
 - keyBy
 
-将DataStream按照key区分得到多个不相交的子流，该子流称为KeyedStream，如下图所示根据颜色将输入流分为黑色的和非黑的两种：
+将DataStream按照key区分得到多个**不相交**的子流，该子流称为KeyedStream，如下图所示根据颜色将输入流分为黑色的和非黑的两种：
 
 <img style={{width:"50%", height:"50%"}} src="/img/doc/Stream-Processing-with-Apache-Flink/chap05/A-Keyby-Operation-Example.png" title="A Keyby Operation Example" />
 
@@ -215,7 +215,7 @@ DataStream<String> splitIds = sensorIds
 KeyedStream<SensorReading, String> keyed = sensorData.keyBy(r -> r.id);
 ```
 
-keyBy方法传入参数为函数式接口，代码如下：
+keyBy方法传入参数为函数式接口`KeySelector`，代码如下：
 
 ```java
 @FunctionalInterface
@@ -375,7 +375,7 @@ Split是union的逆操作：将一个流分解为0至多个流。 DataStream.spl
 
 ### 分配转换
 
-分配转换(Distribution Transformations)是[数据交换策略](/docs/Stream%20Processing%20with%20Apache%20Flink/Stream-Processing-with-Apache-Flink-Chap02#数据交换策略)的实现，定义如何将数据分配到task。
+分配转换(Distribution Transformations)是[数据交换策略](Chap02/#数据交换策略)的实现，定义如何将数据分配到task。
 
 :::caution 注意
 keyBy()和分配转换不同，前者产生KeyedStream，后者仍为DataStream
@@ -436,19 +436,19 @@ DataStream<T> result = env.addSource(new CustomSource)
 
 ## 类型
 
-**类型信息(Type Information)**：指Flink处理的事件流由数据对象(Data Object)组成，类型信息指处理数据对象的类型、对应的解/编码器等信息。
+**类型信息(Type Information)**：Flink处理的事件流由数据对象(Data Object)组成，类型信息指处理数据对象的类型、对应的解/编码器等信息。
 
 ### 支持的数据类型
 
 Flink原生支持如下数据类型(参考[Supported Data Types](https://nightlies.apache.org/flink/flink-docs-release-1.14/docs/dev/datastream/fault-tolerance/serialization/types_serialization/)在原书上补充)：
 
-1. Scala和Java的基本类型
+1. **Scala和Java的基本类型**
 
 ```java
 DataStream<Long> numbers = env.fromElements(1L, 2L, 3L, 4L);
 ```
 
-2. Scala和Java的元组(tuple)
+2. **Scala和Java的元组(tuple)**
 
 ```java
 DataStream<Tuple2> persons = env.fromElements(new Tuple2("Kay", 19), new Tuple2("Haw", 20));
@@ -456,8 +456,8 @@ DataStream<Tuple2> persons = env.fromElements(new Tuple2("Kay", 19), new Tuple2(
 
 Flink提供从1个元素到25个元素的元组类型，每个元组类型都是单独一个类(`Tuple1`, `Tuple2`, ... `Tuple25`)。
 
-3. Scala的case类
-4. POJO
+3. **Scala的case类**
+4. **POJO**
 
 :::tip
 Flink对POJO有以下要求：
@@ -468,15 +468,15 @@ Flink对POJO有以下要求：
 - 字段类型必须能被一个serializer序列化
 :::
 
-5. General Class
+5. **General Class**
 
 不符合POJO要求的类被视为通用类，Flink使用[Kryo](https://github.com/EsotericSoftware/kryo)对其进行序列化和反序列化。
 
 :::caution 注意
-尽量避免使用Kryo，因为它并不是很高效
+尽量避免使用Kryo，因为它并不是很高效。
 :::
 
-6. Value
+6. **Value**
 
 指实现了`org.apache.flink.types.Value`接口的对象，Value接口又继承IOReadableWritable，通过实现write和read两个方法，Value类型可以自定义序列化和反序列化操作。
 
@@ -505,15 +505,15 @@ public interface IOReadableWritable {
 
 当需要复制时或者修改值时，可以使用Value的派生接口CopyableValue/ResettableValue。Flink提供了基本类型对应的Value类，如ByteValue、ShortValue等，它们都实现了CopyableValue和ResettableValue两种接口。
 
-:::note 为什么需要Value?
+:::tip 为什么需要Value?
 **当通用的序列化并不高效时，可以通过Value来自定义高效的序列化和序列化**。比如将稀疏矩阵作为数据类型时，由于大多数元素为0，可以给非0元素编码而不是将所有元素都编码。
 :::
 
-7. Hadoop Writables
+7. **Hadoop Writables**
 
 指实现了`org.apache.hadoop.Writable`接口的类型。
 
-8. 特殊类型
+8. **特殊类型**
 
 比如Scala的`Either`、`Option`和`Try`，Java的`Optional`。
 
@@ -539,8 +539,8 @@ TypeInformation<Person> personType = Types.POJO(Person.class);
 
 大多数情况下，Flink可以推测类型并生成对应的TypeInformation，这由类型提取器通过反射实现。但在一些情况下，比如Java泛型的类型擦除，会导致类型信息提取失败。此时，需要显式地提供类型信息，有2种方式：
 
-1. function类实现ResultTypeQueryable接口
-2. 使用returns()方法指定
+1. **function类实现ResultTypeQueryable接口**
+2. **使用returns()方法指定**
 
 ## 定义key和引用字段
 
@@ -590,7 +590,7 @@ DataStream<Persom> p2 = persons.keyBy("birthday._")
 Flink为自定义方法设计了许多接口，比如MapFunction、FliterFunction等。实现UDF即实现这些接口，可以单独写个类，也可以使用匿名类。
 
 :::caution 注意
-由于Flink会将所有Function对象序列化传递给worker进程，因此Function的所有字段必须实现Serializable接口。如果包含不可序列化字段，使用Rich Function代替。
+由于Flink会将所有Function对象序列化传递给worker进程，因此Function的所有字段必须实现Serializable接口。如果包含不可序列化字段，使用RichFunction代替。
 :::
 
 ### Lambda函数
@@ -599,7 +599,7 @@ Flink为自定义方法设计了许多接口，比如MapFunction、FliterFunctio
 
 ### 富函数
 
-富函数(Rich Function)从字面上来说就是比常规函数提供更多的功能，Flink为每个普通转换函数都设计了对应的富函数(如RichMapFunction)。RichFunction接口定义如下：
+富函数(Rich Function)从字面上理解就是比常规函数提供更多的功能，Flink为每个普通转换函数都设计了对应的富函数(如RichMapFunction)。RichFunction接口定义如下：
 
 ```java
 public interface RichFunction extends Function {
@@ -628,8 +628,8 @@ public interface RichFunction extends Function {
 
 ## 总结
 
-1. Flink应用编程5步骤
-2. 基本流操作的使用就是实现xxxFunction接口
-3. 并行度设置的优先级顺序
-4. Flink POJO类型需要满足的条件
-5. 应用依赖的2种添加方式
+1. Flink应用编程5步骤；
+2. 基本流操作的使用就是实现xxxFunction接口；
+3. 并行度设置的优先级顺序；
+4. Flink POJO类型需要满足的条件；
+5. 应用依赖的2种添加方式。

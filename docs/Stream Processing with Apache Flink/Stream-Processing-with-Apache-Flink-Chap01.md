@@ -1,7 +1,7 @@
 ---
 layout: article
 title: 状态流处理简介
-permalink: /Stream-Processing-with-Apache-Flink/Chap01
+slug: /Stream-Processing-with-Apache-Flink/Chap01
 tags:
   - Stream Processing
   - Apache Flink
