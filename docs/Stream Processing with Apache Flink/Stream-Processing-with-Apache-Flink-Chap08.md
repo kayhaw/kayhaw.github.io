@@ -8,6 +8,10 @@ tags:
   - ReadingNotes
 ---
 
+:::info
+*Stream Processing with Apache Flink* 第8章读书笔记
+:::
+
 本章讨论source和sink如何影响Flink流应用的一致性保证，介绍常用的connector，以及如何实现自定义source和sink。
 
 ## 应用一致性保证

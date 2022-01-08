@@ -8,6 +8,10 @@ tags:
   - ReadingNotes
 ---
 
+:::info
+*Stream Processing with Apache Flink* 第10章读书笔记
+:::
+
 本章介绍如何使用Flink提供的工具运维长期运行的流引用，包括如何收集运行指标、监控应用、更新应用等。
 
 ## 流应用的运行和管理

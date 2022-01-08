@@ -8,6 +8,10 @@ tags:
   - ReadingNotes
 ---
 
+:::info
+*Stream Processing with Apache Flink* 第9章读书笔记
+:::
+
 本章介绍部署Flink的不同方式以及如何配置，包括最重要的JobManager和TaskManager配置。
 
 ## 部署模式
