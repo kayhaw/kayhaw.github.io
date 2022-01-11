@@ -5,7 +5,7 @@ author_title: Never settle down
 author_url: https://github.com/kayhaw
 author_image_url: https://avatars.githubusercontent.com/u/16892835?v=4
 tags: 
-  - Flink
+  - FlinkX
   - Source code dissection
 description: FlinkX源码剖析(1)
 hide_table_of_contents: false
@@ -221,4 +221,185 @@ local模式提交任务则使用本地的FlinkX conf目录下配置文件作为�
 
 > The closure cleaner is a utility that tries to truncate the closure (enclosing instance) of non-static inner classes (created for inline transformation functions). That makes non-static inner classes in many cases serializable, where Java's default behavior renders them non-serializable without good reason.
 
-在Java编程中，内部类所在的外部类称之为闭包(closure)。当开启闭包清理，Flink会分析用户自定义函数中没有用到的字段，并将其设置为null，这样是的闭包或者匿名内部类是可序列化的，而某些Java工具包不会将其序列化。而用户自定义函数需要通过序列化将其分发到Flink集群的worker节点上。这里关闭了闭包清理，是因为已经在各个节点上部署了FlinkX jar包🤔？。
+在Java编程中，内部类所在的外部类称之为闭包(closure)。当开启闭包清理，Flink会分析用户自定义函数中没有用到的字段，并将其设置为null，这样使得闭包或者匿名内部类是可序列化的，而某些Java工具包不会将其序列化。而用户自定义函数需要通过序列化将其分发到Flink集群的worker节点上。这里关闭了闭包清理，是因为已经在各个节点上部署了FlinkX jar包🤔？
+
+### 执行作业exeSyncJob
+
+Main.exeSyncJob()方法的代码逻辑可以分为如下几个步骤：
+
+**第一步**，解析命令行参数得到配置类对象SyncConf，通过GSON.fromJson()方法解析，**顺便做了参数非空校验**；
+
+**第二步**，由configStreamExecutionEnvironment方法配置流执行环境，其中核心代码是`PluginUtil.registerPluginUrlToCachedFile(config, env)`，展开分析一下这个方法(很重要！)
+
+```java
+public static void registerPluginUrlToCachedFile(
+            SyncConf config, StreamExecutionEnvironment env) {
+    Set<URL> urlSet = new HashSet<>();
+    // 这里固定死了远程插件包路径为null，getJarFileDirPath也只会取本地插件包路径了
+    Set<URL> coreUrlList = getJarFileDirPath("", config.getPluginRoot(), null);
+    Set<URL> formatsUrlList = getJarFileDirPath(FORMATS_SUFFIX, config.getPluginRoot(), null);
+    Set<URL> sourceUrlList =
+            getJarFileDirPath(
+                    config.getReader().getName(),
+                    // 注意这里插件搜索根路径换了，在connector目录下面找，sink同理
+                    config.getPluginRoot() + SP + CONNECTOR_DIR_NAME,
+                    null);
+    Set<URL> sinkUrlList =
+            getJarFileDirPath(
+                    config.getWriter().getName(),
+                    config.getPluginRoot() + SP + CONNECTOR_DIR_NAME,
+                    null);
+    Set<URL> metricUrlList =
+            getJarFileDirPath(
+                    config.getMetricPluginConf().getPluginName(),
+                    // 指标插件在metrics目录下面找
+                    config.getPluginRoot() + SP + METRIC_SUFFIX,
+                    null);
+    urlSet.addAll(coreUrlList);
+    urlSet.addAll(formatsUrlList);
+    urlSet.addAll(sourceUrlList);
+    urlSet.addAll(sinkUrlList);
+    urlSet.addAll(metricUrlList);
+
+    int i = 0;
+    for (URL url : urlSet) {
+        String classFileName = String.format(CLASS_FILE_NAME_FMT, i);
+        // 注册所有的jar包
+        env.registerCachedFile(url.getPath(), classFileName, true);
+        i++;
+    }
+    
+    // 如果是本地执行环境则直接加载，每个线程加载自己的
+    if (env instanceof MyLocalStreamEnvironment) {
+        ((MyLocalStreamEnvironment) env).setClasspaths(new ArrayList<>(urlSet));
+        if (CollectionUtils.isNotEmpty(coreUrlList)) {
+            try {
+                ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
+                // 为什么要用反射加载jar包？？？
+                Method add = URLClassLoader.class.getDeclaredMethod("addURL", URL.class);
+                add.setAccessible(true);
+                add.invoke(contextClassLoader, new ArrayList<>(coreUrlList).get(0));
+            } catch (Exception e) {
+                LOG.warn(
+                        "cannot add core jar into contextClassLoader, coreUrlList = {}",
+                        GsonUtil.GSON.toJson(coreUrlList),
+                        e);
+            }
+        }
+    }
+}
+```
+
+该方法主要功能是通过getJarFileDirPath得到不同功能插件包的URL列表，然后将所有URL列表合并，最后通过Flink提供的方法registerCachedFile(String filePath, String name, boolean executable)将jar文件注册到缓存中。getJarFileDirPath的代码逻辑如下：
+
+1. 将读写插件名称中的`reader`、`source`、`writer`和`sink`这4中后缀去掉得到插件名；
+2. 搜索`<FlinkX插件包目录>/connector/<插件名>`下的**所有以flinkx开头，以.jar结尾的文件名**，即读写插件jar包；
+3. 返回文件URL。
+
+:::caution 注意
+这里getJarFileDirPath的第3个参数，remotePluginPath传入为null，否则优先从该路径下搜索jar文件
+:::
+
+当给env注册完缓存文件后，如果还是local模式，则加载flinkx core包：**使用线程加载器，并以反射形式调用其addURL方法()**。这里使用反射是因为addURL方法是URLClassLoader类的，ClassLoader类并没有该方法。在运行时，获得的线程加载器本质是AppClassLoader，它是URLClassLoader的子类。
+
+回到configStreamExecutionEnvironment方法，如果解析出来的配置SyncConf为空(-job参数没有提供)，并且运行模式不是local或者插件加载模式不是shipfile(参数-shipfile为1)就抛出异常，否则构造一个FactoryHelper注册到FactoryUtil和TableFactoryService的ThreadLocal对象(由于运行模式为local，这步操作的作用先略过)。
+
+最后一步是registerShipfileToCachedFile方法，上面registerPluginUrlToCachedFile方法不同的是，**它在调用env.registerCachedFile()方法时第3个参数设置为false**。
+
+:::caution
+registerPluginUrlToCachedFile和registerShipfileToCachedFile的不同：
+
+1. 注册对象不同，前者是flinx-dist下的插件jar包，后者是参数`-shipfile`值(以逗号分隔的jar包路径)提供的jar包；
+2. 注册方式不同，前者注册名为`class_path_<序号>`，后者以jar文件名注册因此不能重名；前者executable参数为true，后者为false。
+:::
+
+**第三步**：调用discoverSource方法获取SourceFactory实例。首先由 PluginUtil.getPluginClassName方法确定要实例化的全路径工厂类名，其构造格式为**com.dtstack.flinkx.connector.<插件名>.source.<首字母大写插件名>SourceFactory**；接着通过getJarFileDirPath搜索`${FLINK_DIST_DIR}/connector/<插件名>`的jar文件和format目录下的jar文件，合并成urlList列表。通过Flink API配置执行环境，代码如下所示：
+
+```java
+ConfigUtils.encodeCollectionToConfig(
+        // 为什么不能直接env.getConfig()而是要通过反射？
+        (Configuration)
+                ReflectionUtils.getDeclaredMethod(env, "getConfiguration").invoke(env),
+        // 这是用于pipeline的jar包
+        PipelineOptions.JARS,
+        urlList,
+        URL::toString);
+ConfigUtils.encodeCollectionToConfig(
+        (Configuration)
+                ReflectionUtils.getDeclaredMethod(env, "getConfiguration").invoke(env),
+        PipelineOptions.CLASSPATHS,
+        urlList,
+        URL::toString);
+```
+
+:::tip 为什么用反射调用getConfiguration方法？
+getConfiguration方法是StreamExecutionEnvironment的protected方法，不能直接调用。
+:::
+
+最后调用类加载器加载工厂类并调用其特定的构造方法返回实例，代码如下所示：
+
+```java
+return ClassLoaderManager.newInstance(
+    // 为什么传入urlList？它作为key来标识之前使用的classloader
+    urlList,
+    // cl是classload缩写
+    cl -> {
+        Class<?> clazz = cl.loadClass(pluginClassName);
+        Constructor<?> constructor =
+                clazz.getConstructor(
+                        SyncConf.class, StreamExecutionEnvironment.class);
+        // 调用特定的构造方法返回SourceFactory对象
+        return (SourceFactory) constructor.newInstance(config, env);
+    });
+```
+
+这里之所以会传入urlList列表，是因为ClassLoaderManager以url为key维护了一个ClassLoader对象缓存HashMap，通过lambda表达式执行类加载和实例化，注意使用cl时需要切换当前类加载器，代码如下所示：
+
+```java
+public static <R> R callbackAndReset(
+        ClassLoaderSupplier<R> supplier, ClassLoader toSetClassLoader) throws Exception {
+    // 暂时地将线程类加载器替换为toSetClassLoader，然后调用supplier.get方法
+    ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
+    Thread.currentThread().setContextClassLoader(toSetClassLoader);
+    try {
+        return supplier.get(toSetClassLoader);
+    } finally {
+        // 还原旧的
+        Thread.currentThread().setContextClassLoader(oldClassLoader);
+    }
+}
+```
+
+**第四步**：通过sourceFactory.createSource()得到DataStream<RowData\>，然后设置source算子并行度。这部分内容涉及source算子的实现，在下一篇文章中分析。
+
+**第五步**：根据json配置transformer将流环境转为表环境，由syncStreamToTable实现，由于未提供transform sql，先跳过。
+
+**第六步**：根据配置设置从source到sink算子的分发策略为realance()。
+
+**第七步**：构造SinkFactory对象并调用createSink方法创建sink算子，然后根据配置设置其并行度，逻辑同source算子，跳过。
+
+**第八步**：执行作业，作业名称由参数`-jobName`给出。如果是local模式运行还会打统计指标结果。
+
+至此，FlinkX同步任务提交的主干流程分析完毕。
+
+## 总结
+
+主干流程可以归纳为3个方面的功能：
+
+1. 运行参数的默认设置、解析和任务json变量替换等操作
+2. 流执行环境的配置，用到的Flink API有：
+
+```java
+// 1. 指定配置目录解析得到Configuration
+GlobalConfiguration.loadConfiguration(String configDir)
+// 2. 注册缓存jar文件
+StreamExecutionEnvironment.registerCachedFile(String filePath, 
+    String name, boolean executable)
+// 3. 用于配置pipeline.jars和pipeline.classpaths参数的工具方法
+ConfigUtils.encodeCollectionToConfig(WritableConfig configuration， ConfigOption<List<OUT>> key, 
+    @Nullable Collection<IN> values, Function<IN, OUT> mapper)
+```
+
+3. 创建source和sink算子，先用反射机制构造工厂类，然后通过工厂类示例创建算子实例。
+
+执行环境配置和算子都已准备好，调用StreamExecutionEnvironment.execute()即可执行任务。总体下来参数配置的准备工作居多，最核心部分就是配置运行环境、加载算子工厂类然后创建算子。
