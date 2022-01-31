@@ -11,7 +11,7 @@ description: Hadoop 3.1.3学习笔记(2)
 hide_table_of_contents: false
 ---
 
-:pencil:Hadoop 3.1.3学习笔记2篇：HDFS。
+:pencil:Hadoop 3.1.3学习笔记第2篇：HDFS。
 <!--truncate-->
 
 ## HDFS简介
@@ -258,4 +258,114 @@ NameNode返回[数据副本](https://hadoop.apache.org/docs/r3.1.3/hadoop-projec
 
 ## NN和2NN
 
+NameNode的元数据分为2部分：磁盘中的元数据备份fsimage和内存中的增量文件edits。但长时间地添加追剧到edits会导降低效率，因此由SeconaryNameNode专门合并fsimage和edits。Fsimage和Edits文件工作流程如下：
+
+第一阶段，NameNode启动：
+
+1. 如果NameNode第1次初始化则创建fsimage和edits文件，否则加载fsimage和edits到内存；
+2. 客户端对元数据进行增删改的请求；
+3. NameNode记录操作日志，更新滚动日志；
+4. NameNode在内存中对元数据进行增删改。
+
+第二阶段，Secondary NameNode工作：
+
+1. 2NN询问NN是否需要checkpoint；
+2. 2NN请求执行checkpoint；
+3. NN滚动正在写的edits日志；
+4. 将滚动前的edits和fsimage拷贝到2NN；
+5. 2NN加载edits和fsimage到内存进行合并；
+6. 2NN合并生成fsimage.checkpoint；
+7. 2NN将fsimage.checkpoint拷贝到NN；
+8. NN将fsimage.checkpoint重命名为fsimage。
+
+### fsimage和Edits
+
+格式化NameNode后，在`${hadoop.tmp.dir}/dfs/name/current`目录下生成如下文件：
+
+- fsimage_0000000000000001081
+- fsimage_0000000000000001081.md5
+- seen_txid
+- VERSION
+
+fsimage文件是HDFS元数据的一个永久性检查点，包含HDFS文件系统的所有目录和文件inode的序列化信息。edits文件存放HDFS所有**更新**操作的路径，客户端的所有写操作被记录到edits中。seen_txid文件只保存一个数字，即最新edit_inprogress文件名的版本后缀。
+
+### oiv和oev
+
+Hadoop提供oiv(**o**ffline fs**i**mage **v**iewer)、oev(**o**ffline **e**dits **v**iewer)命令分别用于查看fsimage和edits文件，基本用法如下：
+
+```bash
+hdfs oiv[oev] -p <转换输出文件类型> -i <fsimage/edits文件名> -o <转换输出文件名>
+```
+
+### Checkpoint设置
+
+2NN触发checkpoint的条件有2种，第一种是定时触发，默认情况下，2NN每隔一个小时执行一次checkpoint：
+
+```xml title=hdfs-default.xml
+<property>
+    <name>dfs.namenode.checkpoint.period</name>
+    <value>3600s</value>
+</property>
+```
+
+第二种是定量触发，每隔一段时间(默认60s)检查操作次数是否达到定量(默认100万)来决定是否执行checkpoint：
+
+```xml title=hdfs-default.xml
+<property>
+    <name>dfs.namenode.checkpoint.txns</name>
+    <value>1000000</value>
+    <description>操作动作次数</description>
+</property>
+<property>
+    <name>dfs.namenode.checkpoint.check.period</name>
+    <value>60s</value>
+    <description>1分钟检查一次操作次数</description>
+</property>
+```
+
 ## DataNode工作机制
+
+数据块在DataNode上存储包含2个文件，数据本身和元数据文件，后者包含数据块的长度、检验和以及时间戳。DataNode工作机制如下：
+
+1. DataNode启动后向NameNode注册；
+2. DataNode注册成功；
+3. DataNode周期性(默认6小时)地向NN报告所有块信息；
+
+```xml
+<property>
+    <name>dfs.blockreport.intervalMsec</name>
+    <value>21600000</value>
+    <description>Determines block reporting interval in 
+    milliseconds.</description>
+</property>
+<property>
+    <name>dfs.datanode.directoryscan.interval</name>
+    <value>21600s</value>
+    <description>Interval in seconds for Datanode to scan data 
+    directories and reconcile the difference between blocks in memory and on 
+    the disk.
+    Support multiple time unit suffix(case insensitive), as described
+    in dfs.heartbeat.interval.
+    </description>
+</property>
+```
+
+4. DataNode每隔3s向NN发送心跳，如果超过10分钟+30秒没有收到来自DataNode的心跳，NN认为该节点不可用。
+
+### 数据完整性
+
+DataNode使用crc32算法对block进行校验，copyToLocalFile方法最后一个参数设置为false，下载后多一个crc文件。
+
+### 超时设置
+
+当DataNode进程死亡或者由网络故障造成DataNode与NameNode无法通信时，NN不会立即判断该DataNode不可用，而是经过一段超时时长timeout后才判定：
+
+timeout=2 \* dfs.namenode.heartbeat.recheck-interval + 10 \* dfs.heartbeat.interval
+
+默认recheck-interval大小为5分钟，dfs.heartbeat.interval为3秒。
+
+## 总结
+
+1. Block大小与磁盘读写速度相关，一般设置128MB或者256MB；
+2. HDFS Shell操作；
+3. HDFS读写流程:star:。
