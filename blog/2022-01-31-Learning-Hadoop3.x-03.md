@@ -128,3 +128,74 @@ public class WordCountDriver {
 1. 注意导入org.apache.hadoop.mapreduce.\*而不是org.apache.hadoop.mapred.*，前者是Hadoop 2.x/3.x使用，后者是Hadoop 1.x；
 2. WordCountDriver中设置输出KV类型代码写错，导致类型不一致报错。
 :::
+
+## 序列化
+
+序列化是将内存中对象转为字节序列以便于持久化和网络传输的过程，反序列化是将字节序列转为内存中对象的过程。Java序列化机制(Serializable)过于重量，附带校验信息、Header、继承体系等，不便于网络中高效传输，因此Hadoop自定义了序列化机制(Writable)，具有以下特性：
+
+1. 紧凑：高效使用存储空间；
+2. 快速：读写数据开销小；
+3. 互操作：支持多语言交互。
+
+对于Java中的基本类型，Hadoop提供如下对应序列化类：
+
+| Java类型 | Hadoop Writable类型 |
+| -------- | ------------------- |
+| Boolean  | BooleanWritable     |
+| Byte     | ByteWritable        |
+| Int      | IntWritable         |
+| Float    | FloatWritable       |
+| Long     | LongWritable        |
+| Double   | DoubleWritable      |
+| String   | Text                |
+| Map      | MapWritable         |
+| Array    | ArrayWritable       |
+| Null     | NullWritable        |
+
+构建符合Hadoop序列化机制的Bean类需要满足如下条件：
+
+1. 实现Writable接口；
+2. 提供一个空参构造器(序列化反射时用)；
+3. 重写write和readFields方法，**注意字段读写顺序一致**；
+4. **当Bean类作为Key使用时还需要实现Comparable接口**(Shuffle过程使用)；
+5. 当需要序列化到文件时需要重写toString方法。
+
+## MapReduce框架
+
+如下图所示，MR框架包含4个组件：InputFormat、Mapper、Reducer和OutputFormat。MapReduce程序执行流程为：由InputFormat将输入数据分为切片(Split)，Mapper调用map方法处理每个切片中数据，通过Shuffle将处理后结果交给Reducer，它又调用reduce方法合并切片结果，最后通过OutputFormat将合并结果输出。
+
+### Job提交流程
+
+在WordCountDriver中调用waitForCompletion方法来提交作业并获取结果，该方法调用流程如下：
+
+1. 调用submit方法，该方法流程如下：
+    1. 调用ensureState方法判断当前提交状态，必须是JobState.DEFINE；
+    2. 调用setUseNewAPI方法处理新老mapreduce API的兼容性；
+    3. 调用connect方法创建Cluster对象，该类的构造方法调用initialize方法，该方法又依次遍历YarnClientProtocolProvider和LocalClientProtocolProvider，确定客户端为LocalJobRunner；
+    4. 调用submitJobInternal方法。
+
+2. 展开分析submitJobInternal方法流程：
+    1. 调用checkSpecs方法，该方法调用OutputFormat的checkOutputSpecs方法检查输出配置(**对于FileOutputFormat来说它检查输出路径不能为空并且不能已经存在**)；
+    2. 调用JobSubmissionFiles.getStagingDir()方法生成一个stage文件夹；
+    3. 调用ClientProtocol.getNewJobID()生成jobId；
+    4. stage路径和jobId组成路径submitJobDir(例如/tmp/hadoop/mapred/staging/xiaok1378532364/.staging/job_local1378532364_0001)；
+    5. 通过调用链copyAndConfigureFiles->uploadResources->uploadResourcesInternal方法，进行生成submitJobDir文件夹，将程序jar包上传到集群(uploadJobJar)等操作；
+    6. 调用InputFormat的writeSplits方法得到切片数maps，在submitJobDir下生成切片信息文件(`.job.split.crc`、`.job.splitmetainfo.crc`、`job.split`、`job.splitmetainfo`)，随后将切片数设置到Configuration中；
+    7. 调用writeConf方法，在submitJobDir下生成`job.xml`(包含本次作业执行所有的配置信息)和`.job.xml.crc`；
+    8. 调用ClientProtocol.submitJob方法提交作业；
+
+3. 将state设置为JobState.RUNNING，回到waitForCompletion；
+4. 最后返回isSuccessful()方法结果。
+
+### FileInputFormat切片
+
+writeSplits方法根据是否使用新MapReduce API选择调用writeNewSplits方法或者writeOldSplits，这里分析writeNewSplits代码，它调用InputFormat的getSplits抽象方法。抽象类InputFormat的各个子类xxxInputFormat会实现getSplits方法，以FileInputFormat的getSplits方法为例分析如下：
+
+1. 获得minSize=1，maxSize=Long.MAX_VALUE；
+2. 循环遍历输入路径下的所有文件执行步骤3-6；
+3. 由isSplitable方法判断该文件是否可切片，FileInputFormat默认为true；
+4. 获取块大小blockSize，默认是33554432(本地调试为32MB)；
+5. 计算切片大小splitSize=Math.max(minSize, Math.min(maxSize, blockSize))，因此默认切片大小就是块大小；
+6. while循环生成切片信息InputSplit列表，注意只有剩余长度/splitSize大于SPLIT_SLOP(默认0.1)时才会切片。
+
+接着调用JobSplitWriter.createSplitFiles在subJobDir中生成切片规划文件，将其提交到YARN上后，MrAppMaster根据切片规划文件来计算MapTask个数。
