@@ -199,3 +199,119 @@ writeSplits方法根据是否使用新MapReduce API选择调用writeNewSplits方
 6. while循环生成切片信息InputSplit列表，注意只有剩余长度/splitSize大于SPLIT_SLOP(默认0.1)时才会切片。
 
 接着调用JobSplitWriter.createSplitFiles在subJobDir中生成切片规划文件，将其提交到YARN上后，MrAppMaster根据切片规划文件来计算MapTask个数。
+
+### TextInputFormat和CombineFileInputFormat
+
+FileInputFormat抽象类下针对不同使用场景派生了NLineInputFormat、TextInputFormat、CombineFileInputFormat、KeyValueTextInputFormat等子类，本节介绍常用的TextInputFormat和CombineFileInputFormat。
+
+TextInputFormat是FileInputFormat的默认实现类，源码如下：
+
+```java
+public class TextInputFormat extends FileInputFormat<LongWritable, Text> {
+
+  @Override
+  public RecordReader<LongWritable, Text> 
+    createRecordReader(InputSplit split,
+                       TaskAttemptContext context) {
+    String delimiter = context.getConfiguration().get(
+        "textinputformat.record.delimiter");
+    byte[] recordDelimiterBytes = null;
+    if (null != delimiter)
+      recordDelimiterBytes = delimiter.getBytes(Charsets.UTF_8);
+    return new LineRecordReader(recordDelimiterBytes);
+  }
+
+  @Override
+  protected boolean isSplitable(JobContext context, Path file) {
+    final CompressionCodec codec =
+      new CompressionCodecFactory(context.getConfiguration()).getCodec(file);
+    if (null == codec) {
+      return true;
+    }
+    return codec instanceof SplittableCompressionCodec;
+  }
+
+}
+```
+
+TextInputFormat切片按照文件一个一个来，不管文件有多小都至少是一个切片，对于大量小文件而言这回产生大量MapTask降低处理效率。而CombineFileInputFormat用于处理这种大量小文件的情况，通过CombineTextInputFormat.setMaxInputSplitSize设置虚拟存储切片大小maxInputSplitSize，并按照如下过程切片：
+
+1. 循环遍历输入文件，得到文件大小fileSize；
+2. fileSize < maxInputSplitSize，逻辑上划分为一块虚拟存储；
+3. 2 * maxInputSplitSize < fileSize，以maxInputSplitSize切分一块；
+4. maxInputSplitSize < fileSize <  2 * maxInputSplitSize，平均分成2块；
+5. 遍历所有虚拟存储块，判断大小virtBlockSize是否大于maxInputSplitSize
+6. virtBlockSize大于等于maxInputSplitSize，形成一个切片；
+7. virtBlockSize小于maxInputSplitSize，与下一个虚拟存储块合并形成一个切片。
+
+### Shuffle
+
+map方法之后reduce方法之前的数据处理过程，包含分区、排序、Combiner等操作。
+
+#### 分区策略
+
+如下代码所示，当未通过`Job.setNumReduceTasks(int tasks)`设置任务数量时，默认partitions为1，此时getPartition返回0，即只有一个分区。
+
+```java
+NewOutputCollector(org.apache.hadoop.mapreduce.JobContext jobContext,
+                       JobConf job,
+                       TaskUmbilicalProtocol umbilical,
+                       TaskReporter reporter
+                       ) throws IOException, ClassNotFoundException {
+  collector = createSortingCollector(job, reporter);
+  partitions = jobContext.getNumReduceTasks();
+  if (partitions > 1) {
+    partitioner = (org.apache.hadoop.mapreduce.Partitioner<K,V>)
+      ReflectionUtils.newInstance(jobContext.getPartitionerClass(), job);
+  } else {
+    partitioner = new org.apache.hadoop.mapreduce.Partitioner<K,V>() {
+      @Override
+      public int getPartition(K key, V value, int numPartitions) {
+        return partitions - 1;
+      }
+    };
+  }
+}
+```
+
+若设置数量大于1，则通过getPartitionerClass()方法获取分区类并通过反射实例化，默认使用HashPartitioner，也可以通过参数`mapreduce.job.partitioner.class`指定。此时获取分区编号通过key的hash值对任务数量取模得到，如下所示：
+
+```java title=HashPartitioner.java
+public class HashPartitioner<K, V> extends Partitioner<K, V> {
+
+  /** Use {@link Object#hashCode()} to partition. */
+  public int getPartition(K key, V value,
+                          int numReduceTasks) {
+    return (key.hashCode() & Integer.MAX_VALUE) % numReduceTasks;
+  }
+
+}
+```
+
+因此，自定义分区策略有如下3步：
+
+1. 自定义CustomPartitioner类继承Partitioner抽象类，实现getPartition抽象方法；
+2. 在驱动类中注册使用，`job.setPartitionerClass(CustomPartitioner.class)`；
+3. 设置reduce任务数量，`job.setNumReduceTasks(2)`。
+
+注意getPartition方法返回的分区号必须从0开始，逐一增加。如果设置reduce任务数量和getPartition返回值不同，根据两者关系有如下情况：
+
+1. 如果reduce任务数量大于getPartition返回的最大值，则产生空的输出文件part-r-000xx；
+2. 如果1 < reduce任务数量 < getPartition数量，则抛出IOException异常；
+3. 如果reduce任务数量为1，则只生成一个输出文件part-r-00000。
+
+#### 排序
+
+MapTask和ReduceTask均会对数据按照key进行排序，这是Hadoop的默认行为，不管程序逻辑上是否需要。
+
+对于MapTask，它会将处理的结果暂时放到环形缓冲区中，当环形缓冲区使用率达到一定阈值后，再对缓冲区中的数据进行一次快速排序，并将这些有序数据溢写到磁盘上，而当数据处理完毕后，它会对磁盘上所有文件进行归并排序。
+
+对于ReduceTask，它从每个MapTask上远程拷贝相应的数据文件，如果文件大小超过一定阈值，则溢写磁盘上，否则存储在内存中。如果磁盘上文件数目达到一定阈值，则进行一次归并排序以生成一个更大文件；如果内存中文件大小或者数目超过一定阈值，则进行一次合并后将数据溢写到磁盘上。当所有数据拷贝完毕后，ReduceTask统一对内存和磁盘上的所有数据进行一次归并排序。
+
+排序要求key类型实现WritableComparable接口，即在Writable接口的基础上实现Comparable接口。
+
+#### Combiner
+
+Combiner作为Reducer的子类，是一种特殊的Reducer。Combiner在每一个MapTask所在的节点运行，而Reducer接收全局所有Mapper的输出结果。Combiner对每个MapTask的输出进行局部汇总，以减少网络传输量。**注意使用Combiner的前提是不影响最终的业务逻辑(比如计算平均数就不行)**，输出K-V和Reducer的输入K-V匹配。
+
+设置setNumReduceTasks为0，Shuffle阶段不存在，因此Combiner也不生效。业务逻辑相同的可以直接使用Reducer作为Combiner。
