@@ -315,3 +315,68 @@ MapTask和ReduceTask均会对数据按照key进行排序，这是Hadoop的默认
 Combiner作为Reducer的子类，是一种特殊的Reducer。Combiner在每一个MapTask所在的节点运行，而Reducer接收全局所有Mapper的输出结果。Combiner对每个MapTask的输出进行局部汇总，以减少网络传输量。**注意使用Combiner的前提是不影响最终的业务逻辑(比如计算平均数就不行)**，输出K-V和Reducer的输入K-V匹配。
 
 设置setNumReduceTasks为0，Shuffle阶段不存在，因此Combiner也不生效。业务逻辑相同的可以直接使用Reducer作为Combiner。
+
+## MapTask工作机制
+
+### MapTask源码分析
+
+```java
+自定义Mapper类的map方法调用`context.write(key, v)`；
+    WrappedMapper.write(k, v);
+    TaskInputOutputContextImpl.write(k, v);
+    MapTask.write(k, v, partitioner.getPartition(key, value, partitions))
+        默认使用HashPartitioner的getPartition方法
+    MapTask.collect()方法将所有K-V写出
+    回到runNewMapper方法中调用output.close() [MapTask.java, Line 805]
+        调用collector.flush() [MapTask.java, Line 735]
+            调用sortAndSpill()方法 [MapTask.java, Line 1505]，
+                调用sorter.sort()方法 [MapTask.java, Line 1625]
+            调用mergeParts()方法合并文件 [MapTask.java, Line 1527]
+        调用collector.close()，关闭收集器，进入ReduceTask [MapTask.java, Line 739]
+```
+
+### ReduceTask源码分析
+
+```java
+以ReduceTask.run()为入口
+initialize() [ReduceTask.java, Line333]
+shuffleConsumerPlugin.init(shuffleContext) [ReduceTask.java, Line 375]
+    new ShuffleSchedulerImpl [Shuffle.java, Line77]
+        totalMaps = job.getNumMapTasks() [ShuffleSchedulerImpl.java, Line 120]
+    merger = createMergeManager(context) [Shuffle.java, Line 80]
+        new MergeManagerImpl [Shuffle.java, Line 85]
+            this.inMemoryMerger = createInMemoryMerger() [MergeManagerImpl.java, Line 232]
+            this.onDiskMerger = new OnDiskMerger(this) [MergeManagerImpl.java, Line 235]
+rIter = shuffleConsumerPlugin.run() [ReduceTask.java, Line 375]
+    eventFetcher.start()  [开始抓取数据，Shuffle.java, Line 107]
+    eventFetcher.shutDown() [抓取完毕，Shuffle.java, Line 141]
+    copyPhase.complete() [copy完成Shuffle.java, Line 151]
+    taskStatus.setPhase(TaskStatus.Phase.SORT) [开始排序阶段，Shuffle.java, Line 152]
+sortPhase.complete() [排序阶段完成，进入reduce，ReduceTask.java, Line 382]
+runNewReducer() [进入reducer，ReduceTask.java, Line 390]
+    reducer.run() [ReduceTask.java, Line 628]
+        setup(); [Reduce.java, Line 168]
+        reduce(); [Reduce.java, Line 171]
+        cleanup(); [[Reduce.java, Line 179]]
+```
+
+## Join
+
+MapReduce程序的Join操作分为Reduce Join和Map Join两种：
+
+- **Reduce Join**：map方法对记录打标签，以连接字段为key，其余字段加标签为value；reduce方法通过标签区分不同来源，然后合并。缺点是所有合并操作在Reduce阶段完成，Map阶段压力小但Reduce阶段压力大，容易产生**数据倾斜**；
+- **Map Join**：在Map阶段缓存多张表，提前处理业务逻辑，**适合小表关联大表**。
+前者通过打标签来区分不同来源的记录，然后用连接字段为key，其余部分加标签为value进行reduce输出。具体操作如下：
+
+1. Driver类添加缓存文件：`job.addCacheFile(new URI)`；
+2. 设置ReduceTask数量为0：`job.setNumberReduceTasks(0)`；
+3. Mapper类的setup方法读取缓存文件并保存为集合；
+4. map方法根据集合和数据完成关联合并。
+
+## ETL
+
+ETL(Extract-Transform-Load)指数据从源端经过抽取、转换和加载到目标端的过程，在运行核心业务MapReduce程序之前都需要对数据进行清洗，**ETL往往只需要运行Mapper而不需要Reducer**。
+
+## 压缩
+
+Hadoop数据压缩的优点是减少IO次数、减少存储空间，但缺点是增加CPU开销。因此使用压缩的原则是CPU密集型应用少用压缩，而IO密集型应用多用压缩。
