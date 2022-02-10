@@ -1,0 +1,111 @@
+---
+title: Hadoop 3.x学习笔记(6)
+author: 何轲
+author_title: Never settle down
+author_url: https://github.com/kayhaw
+author_image_url: https://avatars.githubusercontent.com/u/16892835?v=4
+tags: 
+  - Hadoop
+  - BigData
+description: Hadoop 3.1.3学习笔记(6)
+hide_table_of_contents: false
+---
+
+:pencil:Hadoop 3.1.3学习笔记第6篇：源码分析。
+<!--truncate-->
+
+## NameNode启动源码分析
+
+分析NameNode.java(在hadoop-hdfs.jar包下)，主要有以下流程：启动Web服务、加载镜像文件和编辑日志、初始化RPC服务器、启动资源检查、心跳检测和安全模式。
+
+### 启动Web服务
+
+从NameNode.java的main() -> createNameNode -> NameNode构造方法 -> initialize -> **startHttpServer**方法启动NameNode服务。
+
+```java 
+private void startHttpServer(final Configuration conf) throws IOException {
+    httpServer = new NameNodeHttpServer(conf, this, getHttpServerBindAddress(conf));
+    httpServer.start();
+    httpServer.setStartupProgress(startupProgress);
+}
+
+protected InetSocketAddress getHttpServerBindAddress(Configuration conf) {
+    InetSocketAddress bindAddress = getHttpServerAddress(conf);
+
+    // If DFS_NAMENODE_HTTP_BIND_HOST_KEY exists then it overrides the
+    // host name portion of DFS_NAMENODE_HTTP_ADDRESS_KEY.
+    final String bindHost = conf.getTrimmed(DFS_NAMENODE_HTTP_BIND_HOST_KEY);
+    if (bindHost != null && !bindHost.isEmpty()) {
+      bindAddress = new InetSocketAddress(bindHost, bindAddress.getPort());
+    }
+
+    return bindAddress;
+}
+```
+
+其中getHttpServerBindAddress从conf获取`dfs.namenode.http-address`来设置服务的地址和端口号，若没有设置则默认为`0.0.0.0:9870`；接着判断是否配置`dfs.namenode.http-bind-host`，若有设置则用其作为服务地址。
+
+### 加载镜像文件和编辑文件
+
+NameNode.java的loadNameSystem方法，又调用FSNamesystem.loadFromDisk方法，注意加载传入镜像文件和编辑文件两个地址。
+
+```java
+static FSNamesystem loadFromDisk(Configuration conf) throws IOException {
+    checkConfiguration(conf);
+    FSImage fsImage = new FSImage(conf,
+        FSNamesystem.getNamespaceDirs(conf),
+        FSNamesystem.getNamespaceEditsDirs(conf));
+    ...
+}
+```
+
+### 创建RPC服务
+
+initialize方法调用createRpcServer方法，创建一个NameNodeRpcServer对象，其构造方法包含如下代码来创建Rpc服务器。
+
+```java
+lifelineRpcServer = new RPC.Builder(conf)
+    .setProtocol(HAServiceProtocolPB.class)
+    .setInstance(haPbService)
+    .setBindAddress(bindHost)
+    .setPort(lifelineRpcAddr.getPort())
+    .setNumHandlers(lifelineHandlerCount)
+    .setVerbose(false)
+    .setSecretManager(namesystem.getDelegationTokenSecretManager())
+    .build();
+```
+
+### 资源检测
+
+initialize方法调用startCommonServices方法，调用FSNamesystem的startCommonServices方法，该方法包含操作：
+
+1. 创建NameNodeResourceChecker对象，检查元数据存储空间是否剩余100MB可用
+2. checkAvailableResources->hasAvailableDiskSpace->areResourcesAvailable->isResourceAvailable，检查资源是否剩余100MB空间
+
+### 心跳检测
+
+startCommonServices通过blockManager.activate->datanodeManager.activate(conf)->heartbeatManager.activate()->heartbeatThread.start()->Monitor.run()->heartbeatCheck()->isDatanodeDead()，判断节点是否挂掉的心跳时长$heartbeatExpireInterval=2*heartbeatRecheckInterval+10*1000*heartbeatIntervalSeconds$，其中$heartbeatRecheckInterval$默认为5分钟，$heartbeatIntervalSeconds$默认为3，即判断节点是否挂掉的心跳时长默认为10分钟加30秒。
+
+### 安全模式开启
+
+FSNamesystem的startCommonServices方法调用blockManager.activate->bmSafeMode.activate(blockTotal)，代码如下所示，调用setBlockTotal方法设置所有块的总数和安全阈值，调用areThresholdsMet判断是否满足可用阈值，相应的设置是否进入安全模式。
+
+```java
+void activate(long total) {
+  assert namesystem.hasWriteLock();
+  assert status == BMSafeModeStatus.OFF;
+
+  startTime = monotonicNow();
+  setBlockTotal(total);
+  if (areThresholdsMet()) {
+    boolean exitResult = leaveSafeMode(false);
+    Preconditions.checkState(exitResult, "Failed to leave safe mode.");
+  } else {
+    // enter safe mode
+    status = BMSafeModeStatus.PENDING_THRESHOLD;
+    initializeReplQueuesIfNecessary();
+    reportStatus("STATE* Safe mode ON.", true);
+    lastStatusReport = monotonicNow();
+  }
+}
+```
