@@ -109,3 +109,39 @@ void activate(long total) {
   }
 }
 ```
+
+## DataNode启动源码分析
+
+DataNode启动后，首先向NameNode注册自己，然后定期(6小时)向NN上报所有块信息，每隔3秒向NN发送心跳，如果NN超过10分30秒没有收到DataNode心跳则认为该节点不可用。启动流程如下：
+
+### 初始化DataXceiverServer
+
+以DataNode.java的main方法为入口：secureMain->createDataNode->instantiateDataNode->makeInstance->new DataNode->startDataNode->initDataXceiver，调用`this.dataXceiverServer = new Daemon(threadGroup, xserver);`开启服务线程。
+
+### 初始化HTTP服务
+
+startDataNode方法调用startInfoServer为入口：new DatanodeHttpServer->new HttpServer2，然后开启http服务，提供访问DataNode信息的endpoint。
+
+### 初始化Rpc服务
+
+startDataNode方法调用initIpcServer为入口，创建RPC对象。
+
+### 向NameNode注册
+
+startDataNode方法调用BlockPoolManager.refreshNamenodes方法为入口：doRefreshNamenodes->createBPOS->new BPOfferService->new BPServiceActor，有多少个NameNode就添加多少个BPServiceActor，在调用createBPOS后，调用startAll方法进入注册：bpos.start()->actor.start()->BPServiceActor.run()->connectToNNAndHandshake()->db.connectToNN()->new DatanodeProtocolClientSideTranslatorPB()->createNamenode()->RPC.getProxy()，最终得到代理对象。然后开始注册DataNode信息：register()->bpNamenode.registerDatanode(newBpRegistration)->rpcProxy.registerDatanode()，通过rpc调用**NameNode**的registerDatanode方法。
+
+### 发送心跳
+
+回到BPServiceActor.run()方法，调用offerService为入口：sendHeartBeat->bpNamenode.sendHeartbeat->NameNodeRpcServer.sendHeartbeat->namesystem.handleHeartbeat->blockManager.getDatanodeManager().handleHeartbeat->heartbeatManager.updateHeartbeat->blockManager.updateHeartbeat->node.updateHeartbeat->updateHeartbeatState，由NameNode返回一个HeartbeatResponse对象作为心跳响应。
+
+```java
+void updateHeartbeatState(StorageReport[] reports, long cacheCapacity,
+    long cacheUsed, int xceiverCount, int volFailures,
+    VolumeFailureSummary volumeFailureSummary) {
+  updateStorageStats(reports, cacheCapacity, cacheUsed, xceiverCount,
+      volFailures, volumeFailureSummary);
+  setLastUpdate(Time.now());
+  setLastUpdateMonotonic(Time.monotonicNow());
+  rollBlocksScheduled(getLastUpdateMonotonic());
+}
+```
