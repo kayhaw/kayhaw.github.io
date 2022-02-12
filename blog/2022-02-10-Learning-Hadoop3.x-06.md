@@ -145,3 +145,30 @@ void updateHeartbeatState(StorageReport[] reports, long cacheCapacity,
   rollBlocksScheduled(getLastUpdateMonotonic());
 }
 ```
+
+## HDFS文件上传源码分析
+
+第一部分：新增文件元信息。以FileSystem.create(Path path, boolean overwrite)方法为入口，调用抽象方法create->DistributedFileSystem.create()->dfs.create->DFSOutputStream.newStreamForCreate->dfsClient.namenode.create(调用客户端的Rpc创建方法)->namesystem.startFile()[NameNodeRpcServer.java, Line 791]->startFileInt(FSNamesystem.java, Line 2375)->FSDirWriteFileOp.startFile->FSDirWriteFileOp.addFile->fsd.addINode(Line 568)，最后通过addINode方法将路径添加到文件系统元信息中。
+
+```java
+public void testPut2() throws IOException {
+    FSDataOutputStream fos = fs.create(new Path("/input2"));
+    fos.write("hello world".getBytes());
+}
+```
+
+回到DFSOutputStream.java的276行，在添加完文件元信息后，在313行创建文件输出流DFSOutputStream对象，该类的构造方法调用了如下computePacketChunkSize方法来计算Packet包含的chunk数量和packet的大小：
+
+```java
+protected void computePacketChunkSize(int psize, int csize) {
+  final int bodySize = psize - PacketHeader.PKT_MAX_HEADER_LEN;
+  final int chunkSize = csize + getChecksumSize();
+  chunksPerPacket = Math.max(bodySize/chunkSize, 1);
+  packetSize = chunkSize*chunksPerPacket;
+  DFSClient.LOG.debug("computePacketChunkSize: src={}, chunkSize={}, "
+          + "chunksPerPacket={}, packetSize={}",
+      src, chunkSize, chunksPerPacket, packetSize);
+}
+```
+
+默认Packet大小为64KB，chunk大小为512Byte，chunksum大小为4Byte。
