@@ -157,7 +157,7 @@ public void testPut2() throws IOException {
 }
 ```
 
-回到DFSOutputStream.java的276行，在添加完文件元信息后，在313行创建文件输出流DFSOutputStream对象，该类的构造方法调用了如下computePacketChunkSize方法来计算Packet包含的chunk数量和packet的大小：
+回到DFSOutputStream.java的276行，在添加完文件元信息后，在313行创建文件输出流DFSOutputStream对象out，该类的构造方法调用了如下computePacketChunkSize方法来计算Packet包含的chunk数量和packet的大小：
 
 ```java
 protected void computePacketChunkSize(int psize, int csize) {
@@ -171,4 +171,107 @@ protected void computePacketChunkSize(int psize, int csize) {
 }
 ```
 
-默认Packet大小为64KB，chunk大小为512Byte，chunksum大小为4Byte。
+默认Packet大小为64KB，chunk大小为512Byte，chunksum大小为4Byte。创建完out对象后，接着调用其start方法：DataStreamer.start()->DataStreamer.run()->dataQueue.wait()。其中dataQueue是`LinkedList<DFSPacket>`类型对象，调用wait方法阻塞队列直到有packet入队。
+
+第二部分：写数据。第一步是写packet，以FSDataOutputStream.write方法为入口：FilterOutputStream.write->FSOutputSummer.write->FSOutputSummer.flushBuffer->FSOutputSummer.writeChecksumChunks->DFSOutputStream.writeChunk->DFSOutputStream.enqueueCurrentPacketFull->DFSOutputStream.enqueueCurrentPacket->DataStreamer.waitAndQueuePacket，第一次写数据队列为空，因此接下来调用queuePacket方法，代码如下所有，它将packet添加在队列末尾，然后调用notifyAll唤醒所有阻塞线程。
+
+```java
+void queuePacket(DFSPacket packet) {
+  synchronized (dataQueue) {
+    if (packet == null) return;
+    packet.addTraceParent(Tracer.getCurrentSpanId());
+    dataQueue.addLast(packet);
+    lastQueuedSeqno = packet.getSeqno();
+    LOG.debug("Queued {}, {}", packet, this);
+    dataQueue.notifyAll();
+  }
+}
+```
+
+第二步，建立数据传输管理pipeline。回到DataStreamer的run方法，以setPipeline方法为入口：DataStreamer.nextBlockOutputStream->DataStreamer.locateFollowingBlock->DFSOutputStream.addBlock->dfsClient.namenode.addBlock(NameNodeRpcServer.addBlock)->FSNamesystem.getAdditionalBlock->FSDirWriteFileOp.chooseTargetForNewBlock->BlockManager.chooseTarget4NewBlock->BlockPlacementPolicyDefault.chooseTarget->BlockPlacementPolicyDefault.chooseTargetInOrder->
+
+```java
+protected Node chooseTargetInOrder(int numOfReplicas, 
+                                 Node writer,
+                                 final Set<Node> excludedNodes,
+                                 final long blocksize,
+                                 final int maxNodesPerRack,
+                                 final List<DatanodeStorageInfo> results,
+                                 final boolean avoidStaleNodes,
+                                 final boolean newBlock,
+                                 EnumMap<StorageType, Integer> storageTypes)
+                                 throws NotEnoughReplicasException {
+  final int numOfResults = results.size();
+  if (numOfResults == 0) {
+    DatanodeStorageInfo storageInfo = chooseLocalStorage(writer,
+        excludedNodes, blocksize, maxNodesPerRack, results, avoidStaleNodes,
+        storageTypes, true);
+
+    writer = (storageInfo != null) ? storageInfo.getDatanodeDescriptor()
+                                    : null;
+
+    if (--numOfReplicas == 0) {
+      return writer;
+    }
+  }
+  final DatanodeDescriptor dn0 = results.get(0).getDatanodeDescriptor();
+  if (numOfResults <= 1) {
+    chooseRemoteRack(1, dn0, excludedNodes, blocksize, maxNodesPerRack,
+        results, avoidStaleNodes, storageTypes);
+    if (--numOfReplicas == 0) {
+      return writer;
+    }
+  }
+  if (numOfResults <= 2) {
+    final DatanodeDescriptor dn1 = results.get(1).getDatanodeDescriptor();
+    if (clusterMap.isOnSameRack(dn0, dn1)) {
+      chooseRemoteRack(1, dn0, excludedNodes, blocksize, maxNodesPerRack,
+          results, avoidStaleNodes, storageTypes);
+    } else if (newBlock){
+      chooseLocalRack(dn1, excludedNodes, blocksize, maxNodesPerRack,
+          results, avoidStaleNodes, storageTypes);
+    } else {
+      chooseLocalRack(writer, excludedNodes, blocksize, maxNodesPerRack,
+          results, avoidStaleNodes, storageTypes);
+    }
+    if (--numOfReplicas == 0) {
+      return writer;
+    }
+  }
+  chooseRandom(numOfReplicas, NodeBase.ROOT, excludedNodes, blocksize,
+      maxNodesPerRack, results, avoidStaleNodes, storageTypes);
+  return writer;
+}
+```
+
+回到DataStreamer.nextBlockOutputStream方法，在调用locateFollowingBlock后得到上传节点的位置信息后，接着以createBlockOutputStream方法为入口：new Sender(out).writeBlock->Sender.send(out, Op.WRITE_BLOCK, proto.build()发送数据。对应地，DataXceiverServer的run方法执行DataXceiver的run方法，根据发送端的op类型调用processOp进行处理。由于发送端op类型为WRITE_BLOCK，调用Receiver.opWriteBlock(DataInputStream in)方法，继而调用DataXceiver.writeBlock方法：首先通过setCurrentBlockReceiver写块文件，然后判断目标节点个数是否大于0，是的话又用new Sender(mirrorOut).writeBlock写数据（触发写下一个节点的链式调用）。
+
+回到DataStreamer的run方法，在717行调用setPipeline后，接着调用initDataStreaming方法，通过ResponseProcessor线程对象处理写成功响应。
+
+```java title="ResponseProcessor.run(), Line 1179-1183"
+lastAckedSeqno = seqno;
+pipelineRecoveryCount = 0;
+ackQueue.removeFirst();
+packetSendTime.remove(seqno);
+dataQueue.notifyAll();
+```
+
+在发送packet后，不会将该packet删除而是添加到ackQueue中，代码如下所示：
+
+```java title="DataStreamer.run(), Line 753-767"
+synchronized (dataQueue) {
+  // move packet from dataQueue to ackQueue
+  if (!one.isHeartbeatPacket()) {
+    if (scope != null) {
+      spanId = scope.getSpanId();
+      scope.detach();
+      one.setTraceScope(scope);
+    }
+    scope = null;
+    dataQueue.removeFirst();
+    ackQueue.addLast(one);
+    packetSendTime.put(one.getSeqno(), Time.monotonicNow());
+    dataQueue.notifyAll();
+  }
+}
+```
