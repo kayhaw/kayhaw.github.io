@@ -275,3 +275,27 @@ synchronized (dataQueue) {
   }
 }
 ```
+
+## Yarn工作机制
+
+### 任务提交
+
+Job.waitForCompletion为入口：Job.submit->submitter.submitJobInternal->submitClient.submitJob->YARNRunner.submitJob，该方法有2个主要方法调用：createApplicationSubmissionContext和submitApplication。先看创建应用执行环境方法：它会调用setupAMCommand方法构建App master的启动命令，该方法设置一堆java启动参数后，设置启动类为`org.apache.hadoop.mapreduce.v2.app.MRAppMaster`，并将标准输出和标准错误重定向到对应文件夹，代码如下所示：
+
+```java title="YARNRunner.java, Line 498-502"
+vargs.add(MRJobConfig.APPLICATION_MASTER_CLASS);
+vargs.add("1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR +
+    Path.SEPARATOR + ApplicationConstants.STDOUT);
+vargs.add("2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR +
+    Path.SEPARATOR + ApplicationConstants.STDERR);
+```
+
+在创建好应用提交上下文环境对象appContext后，接着调用submitApplication提交，该方法进而调用YarnClinetImpl.submitApplication方法，该方法又调用ClientRMService.submitApplication方法(到了ResourceManager服务)，将提交上下文信息插入到队列中。
+
+### MRAppMaster启动
+
+将任务信息插入到队列后，由MRAppMaster来获取队列任务并安排执行。以MRAppMaster.main方法为入口：initAndStartAppMaster->init->serviceInit->createDispatcher创建调度器。在init方法后调用start方法启动服务：serviceStart->startJobs->dispatcher.getEventHandler().handle(startJobEvent)->GenericEventHandler.eventQueue.put(event)，将任务提交到运行队列。
+
+### YarnChild执行任务
+
+YarnChild是MRAppMaster中执行任务的封装，以其main方法为入口：Task.run->MapTask.run/ReduceTask.run。以MapTaskRun为例，调用runNewMapper->mapper.run->自定义Mapper.run。
