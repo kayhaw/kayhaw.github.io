@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[9778],{5823:function(a){a.exports=JSON.parse('{"allTagsPath":"/blog/tags","slug":"/blog/tags/\u5de5\u4f5c\u603b\u7ed3","name":"\u5de5\u4f5c\u603b\u7ed3","count":1,"permalink":"/blog/tags/\u5de5\u4f5c\u603b\u7ed3"}')}}]);

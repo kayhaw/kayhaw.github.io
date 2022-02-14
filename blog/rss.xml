@@ -4,9 +4,72 @@
         <title>Kay Haw's Blog Blog</title>
         <link>https://kayhaw.github.io/blog</link>
         <description>Kay Haw's Blog Blog</description>
-        <lastBuildDate>Tue, 26 Oct 2021 00:00:00 GMT</lastBuildDate>
+        <lastBuildDate>Thu, 10 Feb 2022 00:00:00 GMT</lastBuildDate>
         <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
         <generator>https://github.com/jpmonette/feed</generator>
+        <item>
+            <title><![CDATA[Hadoop 3.x学习笔记(6)]]></title>
+            <link>https://kayhaw.github.io/blog/2022/02/10/Learning-Hadoop3.x-06</link>
+            <guid>Hadoop 3.x学习笔记(6)</guid>
+            <pubDate>Thu, 10 Feb 2022 00:00:00 GMT</pubDate>
+            <description><![CDATA[Hadoop 3.1.3学习笔记(6)]]></description>
+        </item>
+        <item>
+            <title><![CDATA[Hadoop 3.x学习笔记(4)]]></title>
+            <link>https://kayhaw.github.io/blog/2022/02/07/Learning-Hadoop3.x-04</link>
+            <guid>Hadoop 3.x学习笔记(4)</guid>
+            <pubDate>Mon, 07 Feb 2022 00:00:00 GMT</pubDate>
+            <description><![CDATA[Hadoop 3.1.3学习笔记(4)]]></description>
+        </item>
+        <item>
+            <title><![CDATA[Hadoop 3.x学习笔记(3)]]></title>
+            <link>https://kayhaw.github.io/blog/2022/01/31/Learning-Hadoop3.x-03</link>
+            <guid>Hadoop 3.x学习笔记(3)</guid>
+            <pubDate>Mon, 31 Jan 2022 00:00:00 GMT</pubDate>
+            <description><![CDATA[Hadoop 3.1.3学习笔记(3)]]></description>
+        </item>
+        <item>
+            <title><![CDATA[Hadoop 3.x学习笔记(2)]]></title>
+            <link>https://kayhaw.github.io/blog/2022/01/30/Learning-Hadoop3.x-02</link>
+            <guid>Hadoop 3.x学习笔记(2)</guid>
+            <pubDate>Sun, 30 Jan 2022 00:00:00 GMT</pubDate>
+            <description><![CDATA[Hadoop 3.1.3学习笔记(2)]]></description>
+        </item>
+        <item>
+            <title><![CDATA[Hadoop 3.x学习笔记(1)]]></title>
+            <link>https://kayhaw.github.io/blog/2022/01/29/Learning-Hadoop3.x-01</link>
+            <guid>Hadoop 3.x学习笔记(1)</guid>
+            <pubDate>Sat, 29 Jan 2022 00:00:00 GMT</pubDate>
+            <description><![CDATA[Hadoop 3.1.3学习笔记(1)]]></description>
+        </item>
+        <item>
+            <title><![CDATA[FlinkX源码剖析(2)]]></title>
+            <link>https://kayhaw.github.io/blog/2022/01/17/FlinX-Source-Code-Dissection-02</link>
+            <guid>FlinkX源码剖析(2)</guid>
+            <pubDate>Mon, 17 Jan 2022 00:00:00 GMT</pubDate>
+            <description><![CDATA[FlinkX源码剖析(2)]]></description>
+        </item>
+        <item>
+            <title><![CDATA[项目升级BUG总结]]></title>
+            <link>https://kayhaw.github.io/blog/2022/01/16/项目升级BUG总结</link>
+            <guid>项目升级BUG总结</guid>
+            <pubDate>Sun, 16 Jan 2022 00:00:00 GMT</pubDate>
+            <description><![CDATA[xx项目升级BUG总结]]></description>
+        </item>
+        <item>
+            <title><![CDATA[drift]]></title>
+            <link>https://kayhaw.github.io/blog/drift</link>
+            <guid>drift</guid>
+            <pubDate>Mon, 10 Jan 2022 14:38:04 GMT</pubDate>
+            <description><![CDATA[什么时ClosureCleaner]]></description>
+        </item>
+        <item>
+            <title><![CDATA[FlinkX源码剖析(1)]]></title>
+            <link>https://kayhaw.github.io/blog/2022/01/09/FlinkX-Source-Code-Dissection-01</link>
+            <guid>FlinkX源码剖析(1)</guid>
+            <pubDate>Sun, 09 Jan 2022 00:00:00 GMT</pubDate>
+            <description><![CDATA[FlinkX源码剖析(1)]]></description>
+        </item>
         <item>
             <title><![CDATA[MySQL基础知识总结(1)]]></title>
             <link>https://kayhaw.github.io/blog/2021/10/26/MySQLSummary</link>
