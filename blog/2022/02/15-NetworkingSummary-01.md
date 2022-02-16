@@ -11,6 +11,9 @@ description: 计算机网络知识总结(1)：TCP/IP
 hide_table_of_contents: false
 ---
 
+:pencil:计算机网络知识总结(1)：TCP/IP。
+<!--truncate-->
+
 ## 传输层
 
 ### TCP3次握手
@@ -45,3 +48,9 @@ Server与Client第1次握手后进入`SYN_RCVD`状态，此时双方还未完全
 2. Server接收到FIN报文，返回确认报文(ACK=1, ack=x+1)，发送后进入`CLOSE_WAIT`状态，而Client进入`FIN_WAIT_2`状态；
 3. Server向Client发送请求关闭报文(FIN=1, seq=y)，发送后进入`LAST_ACK`状态；
 4. Client接收到FIN报文，返回确认报文(ACK=1，seq=y+1)，进入`TIME_WAIT`状态；Server收到后进入`CLOSED`状态，客户端等待2*MSL后也进入`CLOSED`状态。
+
+简单来说，4次挥手就是2轮的FIN发送和ACK回复。
+
+:question: **第2、3次握手是否可以合并为1次**：不可以！Server接收到Client的FIN报文时，可能还有一些数据没有发完，因此先回ACK表示接收到了Client的FIN请求，等到其数据发送完毕后再发送FIN表示Server也要断开连接。
+
+:question: **为什么Client进入`TIME_WAIT`状态后要等待2\*MSL才关闭而不是直接进入`CLOSED`状态**：MSL(Maximum Segment Lifetime)s是报文在网络中存在的最长时间，超过改时间的报文会被丢弃。等待2*MSL有两个原因：第一，**确认Server能收到Client的ACK报文**，Server可能没有收到Client第4次挥手的ACK报文，此时Server会重发FIN报文，如果此时Client处于`CLOSED`状态那么重发的FIN报文就找不到对应的连接，让Client处于`TIME_WAIT`能确保响应重发的FIN报文，从而保证Server能收到ACK；第二，**保证本次连接的数据报文从网络中消失**，如果Client发送ACK后直接进入`CLOSED`状态，然后又向Server发送新请求连接，假设端口号不变，旧连接的报文延迟到新连接达到Server，此时Server认为延迟报文是新连接的，由此产生脏数据，因此Client需要等2\*MSL来确保本次连接的所有报文在网络中消失。
