@@ -4,9 +4,37 @@
         <title>Kay Haw's Blog Blog</title>
         <link>https://kayhaw.github.io/blog</link>
         <description>Kay Haw's Blog Blog</description>
-        <lastBuildDate>Thu, 10 Feb 2022 00:00:00 GMT</lastBuildDate>
+        <lastBuildDate>Sun, 20 Feb 2022 00:00:00 GMT</lastBuildDate>
         <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
         <generator>https://github.com/jpmonette/feed</generator>
+        <item>
+            <title><![CDATA[Hive 3.x学习笔记(2)]]></title>
+            <link>https://kayhaw.github.io/blog/2022/02/20/Learning-Hive3.x-02</link>
+            <guid>Hive 3.x学习笔记(2)</guid>
+            <pubDate>Sun, 20 Feb 2022 00:00:00 GMT</pubDate>
+            <description><![CDATA[Hive 3.1.2学习笔记(2)：hive命令使用和Hive数据类型]]></description>
+        </item>
+        <item>
+            <title><![CDATA[Hive 3.x学习笔记(1)]]></title>
+            <link>https://kayhaw.github.io/blog/2022/02/19/Learning-Hive3.x-01</link>
+            <guid>Hive 3.x学习笔记(1)</guid>
+            <pubDate>Sat, 19 Feb 2022 00:00:00 GMT</pubDate>
+            <description><![CDATA[Hive 3.1.2学习笔记(1)：Hive简介与安装]]></description>
+        </item>
+        <item>
+            <title><![CDATA[2022年2月份工作总结]]></title>
+            <link>https://kayhaw.github.io/blog/2022/02/19/WorkJournal</link>
+            <guid>2022年2月份工作总结</guid>
+            <pubDate>Sat, 19 Feb 2022 00:00:00 GMT</pubDate>
+            <description><![CDATA[2021年2月份工作总结]]></description>
+        </item>
+        <item>
+            <title><![CDATA[计算机网络知识总结(1)]]></title>
+            <link>https://kayhaw.github.io/blog/2022/02/15/NetworkingSummary-01</link>
+            <guid>计算机网络知识总结(1)</guid>
+            <pubDate>Tue, 15 Feb 2022 00:00:00 GMT</pubDate>
+            <description><![CDATA[计算机网络知识总结(1)：TCP/IP]]></description>
+        </item>
         <item>
             <title><![CDATA[Hadoop 3.x学习笔记(6)]]></title>
             <link>https://kayhaw.github.io/blog/2022/02/10/Learning-Hadoop3.x-06</link>
@@ -44,17 +72,10 @@
         </item>
         <item>
             <title><![CDATA[FlinkX源码剖析(2)]]></title>
-            <link>https://kayhaw.github.io/blog/2022/01/17/FlinX-Source-Code-Dissection-02</link>
+            <link>https://kayhaw.github.io/blog/2022/01/17/FlinkX-Source-Code-Dissection-02</link>
             <guid>FlinkX源码剖析(2)</guid>
             <pubDate>Mon, 17 Jan 2022 00:00:00 GMT</pubDate>
             <description><![CDATA[FlinkX源码剖析(2)]]></description>
-        </item>
-        <item>
-            <title><![CDATA[项目升级BUG总结]]></title>
-            <link>https://kayhaw.github.io/blog/2022/01/16/项目升级BUG总结</link>
-            <guid>项目升级BUG总结</guid>
-            <pubDate>Sun, 16 Jan 2022 00:00:00 GMT</pubDate>
-            <description><![CDATA[xx项目升级BUG总结]]></description>
         </item>
         <item>
             <title><![CDATA[drift]]></title>

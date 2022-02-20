@@ -2,11 +2,55 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
     <id>https://kayhaw.github.io/blog</id>
     <title>Kay Haw's Blog Blog</title>
-    <updated>2022-02-10T00:00:00.000Z</updated>
+    <updated>2022-02-20T00:00:00.000Z</updated>
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://kayhaw.github.io/blog"/>
     <subtitle>Kay Haw's Blog Blog</subtitle>
     <icon>https://kayhaw.github.io/img/favicon.ico</icon>
+    <entry>
+        <title type="html"><![CDATA[Hive 3.x学习笔记(2)]]></title>
+        <id>Hive 3.x学习笔记(2)</id>
+        <link href="https://kayhaw.github.io/blog/2022/02/20/Learning-Hive3.x-02"/>
+        <updated>2022-02-20T00:00:00.000Z</updated>
+        <summary type="html"><![CDATA[Hive 3.1.2学习笔记(2)：hive命令使用和Hive数据类型]]></summary>
+        <author>
+            <name>何轲</name>
+            <uri>https://github.com/kayhaw</uri>
+        </author>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[Hive 3.x学习笔记(1)]]></title>
+        <id>Hive 3.x学习笔记(1)</id>
+        <link href="https://kayhaw.github.io/blog/2022/02/19/Learning-Hive3.x-01"/>
+        <updated>2022-02-19T00:00:00.000Z</updated>
+        <summary type="html"><![CDATA[Hive 3.1.2学习笔记(1)：Hive简介与安装]]></summary>
+        <author>
+            <name>何轲</name>
+            <uri>https://github.com/kayhaw</uri>
+        </author>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[2022年2月份工作总结]]></title>
+        <id>2022年2月份工作总结</id>
+        <link href="https://kayhaw.github.io/blog/2022/02/19/WorkJournal"/>
+        <updated>2022-02-19T00:00:00.000Z</updated>
+        <summary type="html"><![CDATA[2021年2月份工作总结]]></summary>
+        <author>
+            <name>何轲</name>
+            <uri>https://github.com/kayhaw</uri>
+        </author>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[计算机网络知识总结(1)]]></title>
+        <id>计算机网络知识总结(1)</id>
+        <link href="https://kayhaw.github.io/blog/2022/02/15/NetworkingSummary-01"/>
+        <updated>2022-02-15T00:00:00.000Z</updated>
+        <summary type="html"><![CDATA[计算机网络知识总结(1)：TCP/IP]]></summary>
+        <author>
+            <name>何轲</name>
+            <uri>https://github.com/kayhaw</uri>
+        </author>
+    </entry>
     <entry>
         <title type="html"><![CDATA[Hadoop 3.x学习笔记(6)]]></title>
         <id>Hadoop 3.x学习笔记(6)</id>
@@ -65,20 +109,9 @@
     <entry>
         <title type="html"><![CDATA[FlinkX源码剖析(2)]]></title>
         <id>FlinkX源码剖析(2)</id>
-        <link href="https://kayhaw.github.io/blog/2022/01/17/FlinX-Source-Code-Dissection-02"/>
+        <link href="https://kayhaw.github.io/blog/2022/01/17/FlinkX-Source-Code-Dissection-02"/>
         <updated>2022-01-17T00:00:00.000Z</updated>
         <summary type="html"><![CDATA[FlinkX源码剖析(2)]]></summary>
-        <author>
-            <name>何轲</name>
-            <uri>https://github.com/kayhaw</uri>
-        </author>
-    </entry>
-    <entry>
-        <title type="html"><![CDATA[项目升级BUG总结]]></title>
-        <id>项目升级BUG总结</id>
-        <link href="https://kayhaw.github.io/blog/2022/01/16/项目升级BUG总结"/>
-        <updated>2022-01-16T00:00:00.000Z</updated>
-        <summary type="html"><![CDATA[xx项目升级BUG总结]]></summary>
         <author>
             <name>何轲</name>
             <uri>https://github.com/kayhaw</uri>
