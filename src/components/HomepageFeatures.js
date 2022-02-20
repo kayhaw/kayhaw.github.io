@@ -4,32 +4,32 @@ import styles from './HomepageFeatures.module.css';
 
 const FeatureList = [
   {
-    title: 'Less is more',
+    // title: 'Less is more',
     Svg: require('../../static/img/undraw_docusaurus_mountain.svg').default,
-    description: (
-      <>
-        大道至简
-      </>
-    ),
+    // description: (
+    //   <>
+    //     大道至简
+    //   </>
+    // ),
   },
   {
-    title: 'CoCo',
+    // title: 'CoCo',
     Svg: require('../../static/img/undraw_docusaurus_tree.svg').default,
-    description: (
-      <>
-        志当存高远<br/>
-        开发优秀开源项目，发起成立CoCo Project
-      </>
-    ),
+    // description: (
+    //   <>
+    //     志当存高远<br/>
+    //     开发优秀开源项目，发起成立CoCo Project
+    //   </>
+    // ),
   },
   {
-    title: 'Easy to use, hard to err',
+    // title: 'Easy to use, hard to err',
     Svg: require('../../static/img/undraw_docusaurus_react.svg').default,
-    description: (
-      <>
-        易于使用，难于犯错
-      </>
-    ),
+    // description: (
+    //   <>
+    //     易于使用，难于犯错
+    //   </>
+    // ),
   },
 ];
 
