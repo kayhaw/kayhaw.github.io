@@ -11,7 +11,7 @@ description: Hive 3.1.2学习笔记(1)：Hive简介与安装
 hide_table_of_contents: false
 ---
 
-:pencil:Hadoop 3.1.3学习笔记第1篇：Hive简介与安装。
+:pencil:Hive 3.1.2学习笔记第1篇：Hive简介与安装。
 <!--truncate-->
 
 ## Hive简介
@@ -106,6 +106,29 @@ Source)
 ```
 
 由于Hive默认使用derby作为元数据库，但此时不支持其他会话的共享，因此接下来将元数据库由derby改为MySQL。
+
+:::caution 初次启动报错
+初次启动时报如下错误，原因是Hadoop和Hive中guava版本不一致，将`${HADOOP_HOME}/share/hadoop/common/lib/`下的高版本jar复制到`${HIVE_HOME}/lib/`下并将低版本jar包删除。
+
+```bash
+Exception in thread "main" java.lang.NoSuchMethodError: com.google.common.base.Preconditions.checkArgument(ZLjava/lang/String;Ljava/lang/Object;)V
+	at org.apache.hadoop.conf.Configuration.set(Configuration.java:1357)
+	at org.apache.hadoop.conf.Configuration.set(Configuration.java:1338)
+	at org.apache.hadoop.mapred.JobConf.setJar(JobConf.java:518)
+	at org.apache.hadoop.mapred.JobConf.setJarByClass(JobConf.java:536)
+	at org.apache.hadoop.mapred.JobConf.<init>(JobConf.java:430)
+	at org.apache.hadoop.hive.conf.HiveConf.initialize(HiveConf.java:5141)
+	at org.apache.hadoop.hive.conf.HiveConf.<init>(HiveConf.java:5104)
+	at org.apache.hive.beeline.HiveSchemaTool.<init>(HiveSchemaTool.java:96)
+	at org.apache.hive.beeline.HiveSchemaTool.main(HiveSchemaTool.java:1473)
+	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.lang.reflect.Method.invoke(Method.java:498)
+	at org.apache.hadoop.util.RunJar.run(RunJar.java:318)
+	at org.apache.hadoop.util.RunJar.main(RunJar.java:232)
+```
+:::
 
 ### 更换元数据库
 
@@ -275,3 +298,93 @@ schematool -initSchema -dbType mysql -verbose
 [kayhaw@hadoop102 conf]$ hive --service metastore
 2022-02-19 23:32:28: Starting Hive Metastore Server
 ```
+
+3. 使用beeline连接hive：
+
+```bash
+beeline -u jdbc:hive2://hadoop102:10000 -n kayhaw
+Connecting to jdbc:hive2://hadoop102:10000
+Connected to: Apache Hive (version 3.1.2)
+Driver: Hive JDBC (version 3.1.2)
+Transaction isolation: TRANSACTION_REPEATABLE_READ
+Beeline version 3.1.2 by Apache Hive
+```
+
+这里通过beeline连接Hive时报错`Error: Could not open client transport with JDBC Uri: jdbc:hive2://hadoop102:10000: Failed to open new session: java.lang.RuntimeException`，需要修改Hadoop中的core-site.xml文件，添加如下内容后**重启Hadoop服务**。
+
+```xml
+<!-- kayhaw换成实际登录用户名 -->
+<property>
+	<name>hadoop.proxyuser.kayhaw.hosts</name>
+  <value>*</value>
+</property>
+<property>
+  <name>hadoop.proxyuser.kayhaw.groups</name>
+  <value>*</value>
+</property>
+```
+
+### 启动服务脚本
+
+为了快速启动metastore和hiveserver2服务，封装如下脚本：
+
+```bash title="$HOME/bin/hiveservice.sh"
+#!/bin/bash
+HIVE_LOG_DIR=$HIVE_HOME/logs
+if [ ! -d $HIVE_LOG_DIR ]
+then
+mkdir -p $HIVE_LOG_DIR
+fi
+#检查进程是否运行正常，参数 1 为进程名，参数 2 为进程端口
+function check_process()
+{
+ pid=$(ps -ef 2>/dev/null | grep -v grep | grep -i $1 | awk '{print $2}')
+ ppid=$(netstat -nltp 2>/dev/null | grep $2 | awk '{print $7}' | cut -d '/' -f 1)
+ echo $pid
+ [[ "$pid" =~ "$ppid" ]] && [ "$ppid" ] && return 0 || return 1
+}
+function hive_start()
+{
+ metapid=$(check_process HiveMetastore 9083)
+ cmd="nohup hive --service metastore >$HIVE_LOG_DIR/metastore.log 2>&1 &"
+ [ -z "$metapid" ] && eval $cmd || echo "Metastroe 服务已启动"
+ server2pid=$(check_process HiveServer2 10000)
+ cmd="nohup hiveserver2 >$HIVE_LOG_DIR/hiveServer2.log 2>&1 &"
+ [ -z "$server2pid" ] && eval $cmd || echo "HiveServer2 服务已启动"
+}
+function hive_stop()
+{
+ metapid=$(check_process HiveMetastore 9083)
+ [ "$metapid" ] && kill $metapid || echo "Metastore 服务未启动"
+ server2pid=$(check_process HiveServer2 10000)
+ [ "$server2pid" ] && kill $server2pid || echo "HiveServer2 服务未启动"
+}
+case $1 in
+"start")
+ hive_start
+ ;;
+"stop")
+ hive_stop
+ ;;
+"restart")
+ hive_stop
+ sleep 2
+ hive_start
+ ;;
+"status")
+ check_process HiveMetastore 9083 >/dev/null && echo "Metastore 服务运行正常" || echo "Metastore 服务运行异常"
+ check_process HiveServer2 10000 >/dev/null && echo "HiveServer2 服务运行正常" || echo "HiveServer2 服务运行异常"
+ ;;
+*)
+ echo Invalid Args!
+ echo 'Usage: '$(basename $0)' start|stop|restart|status'
+ ;;
+esac
+```
+
+## 总结
+
+1. 安装Hive之前需要搭建Hadoop环境，启动Hive服务前确保Hadoop服务启动；
+2. metastore服务用于远程访问Hive服务，hiveserver2服务用于JDBC访问Hive服务，后者依赖于前者；
+3. 安装启动Hive时的一些小问题：包版本差异、core-site.xml文件等；
+4. 如果配置了`hive.metastore.uris`参数，就一定要开启metaserver服务。
