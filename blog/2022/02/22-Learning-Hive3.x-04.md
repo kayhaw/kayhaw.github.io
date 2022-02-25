@@ -92,20 +92,21 @@ CREATE [TEMPORARY] [EXTERNAL] TABLE [IF NOT EXISTS] [db_name.]table_name    -- (
 
 ### 抽样查询
 
-Hive提供TABLESAMPLE从句用于查询抽样数据而不是整个表数据，分为分桶表抽样和块抽样两种，语法如下：
+Hive提供[TABLESAMPLE从句](https://cwiki.apache.org/confluence/display/Hive/LanguageManual+Sampling)用于查询抽样数据而不是整个表数据，分为分桶表抽样和块抽样两种，语法如下：
 
 ```sql
 # 分桶表抽样
 selectstatement FROM fromstatement TABLESAMPLE (BUCKET x OUT OF y [ON colname])
 # 数据块抽样
-selectstatement FROM fromstatement TABLESAMPLE (n PERCENT)
+selectstatement FROM fromstatement TABLESAMPLE (n PERCENT) | (ByteLengthLiteral)
 ```
 
 对于分桶表抽样，数据根据抽样列colname随机地分成y份，编号从1到y，然后返回编号为x的数据，建议y是表桶数的因子或倍数。colname非分区字段，可以设置为`rand()`表示对整行数据抽样。对于普通表使用TABLESAMPLE从句会扫描整个表数据，导致效率低，因此往往将其运用到分桶表上，并且抽样列colname和分桶字段相同。例如分桶表桶数为32，对于`TABLESAMPLE(BUCKET 3 OUT OF 16 ON id)`，它会选择第3个和第19个桶数据合成32/16=2个桶返回，而对于`TABLESAMPLE(BUCKET 3 OUT OF 64 ON id)`，它会选择第3个桶的1/2数据返回。**注意x必须小于等于y，否则报错**。
 
-对于数据块抽样，它基于行数按照数据块的百分比进行抽样，它不适用所有文件格式。
+对于数据块抽样，它抽取至少n%数据(注意并不一定是行数)作为输入，仅支持`CombineHiveInputFormat`，某些压缩格式不支持。如果抽样失败则扫描整个表/分区。**数据块抽样输入在HDFS块级别**，比如n%数据大小为100MB而块大小为128MB，此时输入128MB。也可以直接指定抽取大小，例如`SELECT * FROM source TABLESAMPLE(100M)`。
 
 ## 总结
 
 1. 分区就是分目录，多个分区字段对应多层子目录；
 2. 在Hive3.x之前，动态分区需要关闭严格模式；
+3. 分桶表采样将数据分为y份取第x份(从1开始计数)，数据块采样基于块，对数据格式有要求。
