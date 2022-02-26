@@ -14,6 +14,55 @@ hide_table_of_contents: false
 :pencil:Hive 3.1.2学习笔记第5篇：文件压缩和存储。
 <!--truncate-->
 
+## 文件压缩
+
+Hadoop支持的压缩算法如下表所示：
+
+| 压缩格式  | 算法    | 扩展名   | 是否可切分     | 解/编码器                                   | Hadoop是否自带 |
+| -------- | ------- | -------- | ------------- | ------------------------------------------ | -------------- |
+| deflate  | DEFLATE | .deflate | 否            | org.apache.hadoop.io.compress.DefaultCodec | 是            |
+| Gzip     | DEFLATE | .gz      | 否            | org.apache.hadoop.io.compress.GzipCodec    | 是            |
+| bzip2    | bzip2   | .bz2     | 是            | org.apache.hadoop.io.compress.BZip2Codec   | 是            |
+| LZO      | LZO     | .lzo     | 是(需要建索引) | com.hadoop.compression.lzo.LzopCodec       | 否            |
+| Snappy   | Snappy  | .snappy  | 否            | org.apache.hadoop.io.compress.SnappyCodec  | 否            |
+
+各压缩算法性能比较：
+
+- 压缩比：bzip2(gzip) > lzo(snappy)
+- 压缩、解压速率：snappy(lzo) > gzip > bzip
+
+:::info 为什么Hadoop没有自带LZO和Snappy？
+LZO和Snappy采用GPL协议，而Hadoop是Apache协议。
+:::
+
+### 压缩配置
+
+修改mapred-site.xml文件或者通过hive set命令，相关参数如下所示：
+
+| 参数名 | 默认值 | 备注 |
+| ----- | ------ | --- |
+| io.compression.codecs | org.apache.hadoop.io<br/>.compress.DefaultCodec  | Hadoop根据文件扩展名判断是否支持某种解码器，在core-site.xml中配置 |
+| mapreduce.map<br/>.output.compress | false | 设置为true开启压缩 |
+| mapreduce.map<br/>.output.compress.codec  | org.apache.hadoop.io<br/>.compress.DefaultCodec | Mapper压缩格式 |
+| mapreduce.output<br/>.fileoutputformat.compress | false  | 设置为true开启压缩 |
+| mapreduce.output<br/>.fileoutputformat.compress.codec | org.apache.hadoop.io<br/>.compress.DefaultCodec | 使用gzip或者bzip2 |
+| mapreduce.output<br/>.fileoutputformat.compress.type  | RECORD | **SequenceFile**输出使用的压缩类型，另可选NONE和BLOCK |
+
+### 开启Mapper压缩
+
+1. 开启Hive中间传输数据压缩：`set hive.exec.compress.intermediate=true;`；
+2. 开启Hadoop中Mapper输出压缩：`set mapreduce.map.output.compress=true;`；
+3. 设置Hadoop中Mapper压缩格式：`set mapreduce.map.output.compress.codec=org.apache.hadoop.io.compress.SnappyCodec;`；
+
+### 开启Reducer压缩
+
+1. 开启Hive最终输出数据压缩功能：`set hive.exec.compress.output=true;`；
+2. 开启Hadoop中Reducer输出压缩：`set mapreduce.output.fileoutputformat.compress=true;`；
+3. 设置Hadoop中Reducer压缩格式：`set mapreduce.output.fileoutputformat.compress.codec=org.apache.hadoop.io.compress.SnappyCodec;`；
+4. 设置Hadoop中Reducer压缩单位：`set mapreduce.output.fileoutputformat.compress.type=BLOCK;`；
+
+其中mapreduce.output.fileoutputformat.compress.type参数仅用于编码方式设置为SequenceFile时，默认为RECORD，但建议使用BLOCK。
+
 ## 文件存储
 
 Hive支持的文件存储格式有TEXTFILE、SEQUENCEFILE、ORC和PARQUET。其中TEXTFILE和SEQUENCEFILE基于行存储，而ORC和PARQUET基于列存储。
