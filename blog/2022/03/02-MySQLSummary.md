@@ -198,3 +198,64 @@ read view是使用普通select查询时产生的一致性读视图，也称快�
    2. DB_TRX_ID不在id数组中，表示该版本是已提交事务生成，可见。
 
 快照读不会看到其他事务插入的数据，因此幻读只会在当前读下出现。
+
+## MySQL日志
+
+MySQL日志包括错误日志、查询日志、慢查询日志、事务日志和二进制日志。重点介绍二进制日志binlog和事务日志redo log和undo log。
+
+### binlog
+
+binlog以二进制形式记录数据库执行的写入操作，它是逻辑日志，**使用任何存储引擎的MySQL都会记录binlog日志**。Bin log主要使用场景有：
+
+1. 主从复制：在Master节点开启bin log，然后将其发送到Slave端，Slave端重放bin log实现主从一致；
+2. 数据恢复：通过mysqlbinlog工具来恢复数据。
+
+binlog通过追加方式写入日志文件，参数`max_binlog_size`控制binlog文件大小，达到该值后生成新日志文件，通过`sync_binlog`参数控制写入时机：
+
+1. 0：由系统自行判断何时写入磁盘；
+2. 1：每次commint提交都将binlog写入磁盘；
+3. N：每N个事务将binlog写入磁盘。
+
+MySQL 5.7.7起默认值为1，调大该值可以提升性能但会牺牲数据一致性。
+
+#### 日志格式
+
+binlog日志格式分为如下3种，通过参数`binlog-format`指定：
+
+1. statement：基于SQL语句的复制(statement-based replication, SBR)，将修改数据的sql记录到binlog；
+   1. 优点：不需要记录每一行变化，减少日志量；
+   2. 缺点：某些sql语句会导致主从数据不一致，如sysdate()、sleep()等。
+2. row：基于行的复制(row-based replication, RBR)，不记录sql语句上下文信息，仅记录哪条数据被修改
+   1. 优点：不会出现存储过程指定导致无法被正确复制的问题；
+   2. 缺点：会产生大量日志，尤其alter table时。
+3. mixed：以上两者的融合，一般复制使用statement，处理不了的使用row模式。
+
+MySQL 5.7.7前默认为statement，之后默认为row。
+
+### redo log
+
+为了实现事务的持久性，最简单的方式就是在每次事务提交后将修改数据全部刷新到磁盘中，但这么做会导致两个问题：
+
+1. InnoDB以页为单位刷新磁盘，一个事务可能只修改了数据页中的几个字节，此时将完整页写回磁盘浪费资源；
+2. 一个事务可能修改多个数据页，而这些数据页在物理上并不连续，使用随机IO写回性能太差。
+
+因此MySQL实现redo log来记录事务对数据页进行了哪些修改，解决修改写回的性能问题。
+
+#### 写入机制
+
+redo log包括内存中的日志缓冲redo log buffer和磁盘中的日志文件redo log file。每次执行DML语句，先将记录写入redo log buffer，然后在某个时刻一次性将多条记录写入到redo log file，这种先写内存再写磁盘的方式称为写前日志(Write Ahead Loggin，WAL)。操作系统中用户空间的缓冲区数据是无法直接写入到磁盘中，中间必须经过操作系统缓存区os buffer，因此redo buffer写入redo lof file是先写入到os buffer再通过fsync系统调用写到redo log file。redo log写入策略由参数`innodb_flush_log_at_trx_commit`控制，可选值及含义如下：
+
+- 0(延迟写)：事务提交不会将redo log buffer写入到os buffer，而是每秒写入os buffer然后再通过fsync写入到redo log file，即每隔1秒写回磁盘，因此故障时会丢失1秒内的数据；
+- 1(实时写，实时刷)：每次事务提交即写入os buffer并调用fsync刷到redo log file，故障时不会丢失数据但IO性能差；
+- 2(实时写，延迟刷)：每次事务提交写入到os buffer，然后每隔1秒调用fsync刷到redo log file。
+
+### 日志对比
+
+|比较项|redo log|bin log|
+|------|--------|-------|
+|文件大小|大小固定|大小通过参数设置|
+|实现层级|InnDB引擎实现|Server层实现，所有引擎都可以使用|
+|记录方式|循环写|追加写，文件大小超过设定值时记录到新文件上|
+|使用场景|崩溃恢复|主从复制和数据恢复|
+
+Redo log是物理日志，记录数据页的变化，而bin log和undo log是逻辑日志，记录执行语句。Redo log实现事务持久性，undo log实现日志原子性。在恢复数据的效率上，redo log优于bin log。
