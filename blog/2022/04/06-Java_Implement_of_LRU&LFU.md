@@ -31,7 +31,7 @@ hide_table_of_contents: false
    2. key存在，返回value。**此时key是最近被使用的节点，将其挪到双向链表的头部**。
 2. put方法先判断key是否存在：
    1. key不存在，直接插入到哈希表，**接着判断是否超过缓存大小，是的话就淘汰链表尾部的键值对**；
-   2. key存在，则更新哈希表中对应value；
+   2. key存在，则更新哈希表中对应value，并将其挪到链表头部；
    3. 将新增key对应节点移到链表头部。
 
 :::info 总结
@@ -180,6 +180,123 @@ class LRUCache extends LinkedHashMap<Integer, Integer>{
 :::caution 注意
 在LinkHashMap中，双向链表的头节点表示最老的节点，而尾节点才表示最新的节点。
 :::
+
+## LFU
+
+最不经常使用(Least Recently Used, LRU)算法：当缓存空间不够时，将访问频率最低的记录淘汰后加入新记录。[Leetcode 460. LFU缓存](https://leetcode-cn.com/problems/lfu-cache/)要求实现包含如下方法的LFUCache类来模拟LFU缓存：
+
+1. `LFUCache(int capacity)`：以正整数capacity作为容量初始化LFU缓存；
+2. `int get(int key)`：如果关键字key存在于缓存中，则返回对应值，否则返回-1；
+3. `void put(int key, int value)`：如果关键字key已经存在，则更新对应值为value；如果key不存在则向缓存中插入key-value，如果插入后键值对个数超过capacity，则淘汰最不经常使用的键值对，**如果使用频率相同，则淘汰最近最久未使用的键值对**。
+
+### 哈希表加平衡二叉树
+
+与实现LRU算法仅靠双向链表就可以实现按照访问时间先后排序同步，LFU算法需要先比频率再比访问时间，这里选择平衡二叉树按照该比较逻辑来维护键值对的顺序。对于每个节点，添加属性freq和time分别表示对应key的访问次数和访问时间：freq越大表示访问频率越高，time越大表示访问时间最新。具体地，对于get、put方法，设计逻辑如下：
+
+1. get方法先判断key是否存在；
+   1. key不存在，返回-1；
+   2. key存在，返回value。**此时key访问次数加1，访问时间加1**，并且由于这两个属性值改变，需要重新将其从平衡二叉树中删除再插入，以维持二叉树的有序性。
+2. put方法先判断key是否存在：
+   1. key不存在，**先判断是否缓存是否已满，是的话就淘汰二叉树中最小的节点**，接着设置新节点freq=1，time=1后插入到平衡二叉树中；
+   2. key存在，则更新哈希表中对应value，同时访问次数加1，访问时间加1，更新二叉树(先删除再插入)；
+
+```java
+public class LFUCache {
+    private Map<Integer, Node> map;
+    private SortedSet<Node> avl;
+    private int capacity;
+    // 只有新增记录时time才会加1
+    private int time;
+
+    public LFUCache(int capacity) {
+        this.map = new HashMap<>();
+        this.avl = new TreeSet<>();
+        this.capacity = capacity;
+        this.time = 0;
+    }
+
+    public int get(int key) {
+        if(capacity == 0 || !map.containsKey(key)) {
+            return -1;
+        }
+        // 通过哈希表找到Node，更新其频率和访问时间，调整节点在TreeSet中位置(先删除后加入)
+        Node node = map.get(key);
+        avl.remove(node);
+        node.freq += 1;
+        node.time = ++time;
+        avl.add(node);
+        return node.value;
+    }
+
+    public void put(int key, int value) {
+        if(capacity == 0) {
+            return;
+        }
+        // 1. 已经存在则更新频率和访问时间，逻辑同get命中
+        if(map.containsKey(key)) {
+            Node node = map.get(key);
+            avl.remove(node);
+            node.freq += 1;
+            node.time = ++time;
+            node.value = value;
+            avl.add(node);
+            map.put(key, node);      // put和return别漏了！
+            return;
+        }
+        // 2. 如果缓存已满，先从从哈希表和平衡二叉树中删除最不常访问节点
+        if(map.size() == capacity) {
+            Node exile = avl.first();
+            map.remove(exile.key);
+            avl.remove(exile);
+        }
+        // 3. 构造新节点加入到哈希表和平衡二叉树中
+        Node node = new Node(1, ++time, key, value);
+        map.put(key, node);
+        avl.add(node);
+    }
+
+    private class Node implements Comparable<Node> {
+        private int freq;
+        private int time;
+        private int key;
+        private int value;
+
+        private Node(int freq, int time, int key, int value) {
+            this.freq = freq;
+            this.time = time;
+            this.key = key;
+            this.value = value;
+        }
+
+        // 由于Node作为TreeSet的元素，必须重写equals和hashcode方法
+        public boolean equals(Object object) {
+            if(this == object) {
+                return true;
+            }
+            if(object instanceof Node) {
+                Node node = (Node) object;
+                return this.freq == node.freq && this.time == node.time;
+            }
+            return false;
+        }
+
+        public int hashCode() {
+            return freq * 1000000007 + time;
+        }
+
+        @Override
+        public int compareTo(Node another) {
+            return (this.freq == another.freq) ? this.time - another.time : this.freq - another.freq;
+        }
+    }
+}
+```
+
+在编程时要注意如下几点：
+
+1. Node必须重写equals和hashCode方法，实现comparable接口；
+2. 节点访问时间应该使用LFUCache统一维护的时钟，尤其注意更新节点的time不能简单写成`node.time += 1`；
+3. 删除、更新二叉树节点时不要忘记对哈希表进行相同操作。
 
 ## 总结
 
