@@ -296,10 +296,141 @@ public class LFUCache {
 
 1. Node必须重写equals和hashCode方法，实现comparable接口；
 2. 节点访问时间应该使用LFUCache统一维护的时钟，尤其注意更新节点的time不能简单写成`node.time += 1`；
-3. 删除、更新二叉树节点时不要忘记对哈希表进行相同操作。
+3. 删除、更新二叉树节点时不要忘记对哈希表进行相同操作；
+4. 该代码实现的时间复杂度为O(logN)，没能达到原题要求的O(1)。
+
+### 双哈希表
+
+对于LRU和LFU算法不难发现：**当使用频率相同时，LFU就退化成了LRU；当使用频率不同时，只关心使用频率最低的**。借鉴LRU的思路，设计两个哈希表freqMap和keyMap，前者key为使用频率而value为双向链表节点，后者用于存储缓存，并且使用minFreq保存当前最低的使用频率。具体地，对于get、put方法，设计逻辑如下：
+
+1. get方法先判断key是否存在于keyMap中；
+   1. key不存在，返回-1；
+   2. key存在，返回value。**此时key访问次数加1**，并且需要将其挪动到对应freq的双向链表的头部；
+   3. 更新minFreq。
+2. put方法先判断key是否存在：
+   1. key不存在，**先判断是否缓存是否已满，是的话就淘汰freqMap中freq对应链表的尾节点**，接着设置新节点freq=1，插入到freqMap和keyMap；
+   2. key存在，则更新keyMap中对应value，剩余操作同get方法命中；
+   3. 更新minFreq。
+
+```java
+public class LFUCache {
+    private Map<Integer, Deque<Node>> freqMap;
+    private Map<Integer, Node> keyMap;
+    private int minFreq;
+    private int capacity;
+
+    public LFUCache(int capacity) {
+        freqMap = new HashMap<>();
+        keyMap = new HashMap<>();
+        minFreq = 0;
+        this.capacity = capacity;
+    }
+
+    public int get(int key) {
+        if(capacity == 0 || !keyMap.containsKey(key)) {
+            return -1;
+        }
+        /**
+         * 缓存命中
+         * 1. 从keyMap和freqMap中删除对应node
+         * 2. 如果freqMap删除node后的队列为空表示已经没有该频率的缓存，此时进一步判断更新minFreq
+         * 3. 更新freqMap，将node频率加1，插入到对应队列中
+         */
+        Node node = keyMap.get(key);
+        int val = node.value, freq = node.freq;
+        Deque<Node> originQueue = freqMap.get(freq);
+        originQueue.remove(node);
+        if(originQueue.isEmpty()) {
+            freqMap.remove(freq);
+            if(minFreq == freq) {
+                minFreq += 1;
+            }
+        }
+        Deque<Node> currentQueue = freqMap.getOrDefault(freq+1, new LinkedList<>());
+        Node newNode = new Node(key, val, freq+1);
+        currentQueue.offerFirst(newNode);
+        keyMap.put(key, newNode);
+        freqMap.put(freq+1, currentQueue);
+        return node.value;
+    }
+
+    public void put(int key, int value) {
+        if(capacity == 0)   return;
+        // 命中缓存则更新value值，其他逻辑同get命中，
+        if(keyMap.containsKey(key)) {
+            Node node = keyMap.get(key);
+            Deque<Node> originQueue = freqMap.get(node.freq);
+            originQueue.remove(node);
+            if(originQueue.isEmpty()) {
+                freqMap.remove(node.freq);
+                if(minFreq == node.freq) {
+                    minFreq += 1;
+                }
+            }
+            node.value = value;
+            node.freq++;
+            Deque<Node> newQueue = freqMap.getOrDefault(node.freq, new LinkedList<>());
+            newQueue.offerFirst(node);
+            freqMap.put(node.freq, newQueue);
+        } else {
+            /**
+             * 增加缓存之前先判断是否已满，淘汰逻辑
+             * 1. 找到minFreq对应的queue
+             * 2. queue删除其尾节点
+             * 3. keyMap删除节点
+             * 4. 如果queue删除后为空需要移除整个队列
+             * 5. 重新设置minFreq为1
+             */
+            if(keyMap.size() == capacity) {
+                Deque<Node> minQueue = freqMap.get(minFreq);
+                Node exile = minQueue.getLast();
+                keyMap.remove(exile.key);
+                minQueue.removeLast();
+                // 不需要移除，复用队列
+                // if(minQueue.isEmpty()) {
+                //    freqMap.remove(minFreq);
+                // }
+            }
+            /**
+             * 新增节点逻辑
+             * 1. 初始freq为1
+             * 2. keyMap和queue添加节点
+             * 3. 设置minFreq为1
+             */
+            Node node = new Node(key, value, 1);
+            Deque<Node> minQueue = freqMap.getOrDefault(1, new LinkedList<>());
+            minQueue.addFirst(node);
+            keyMap.put(key, node);
+            freqMap.put(1, minQueue);
+            minFreq = 1;
+        }
+    }
+
+    private class Node {
+        public int key;
+        public int value;
+        public int freq;
+
+        public Node(int key, int value, int freq) {
+            this.key = key;
+            this.value = value;
+            this.freq = freq;
+        }
+    }
+
+}
+```
+
+在编程时要注意如下几点：
+
+1. Map接口的getOrDefault方法不会将默认返回值加入到哈希表，一开始自认为会自动加入导致代码报空指针异常:clown_face:；
+2. freqMap的key为频率大小而不是缓存key，手快写成freqMap.put(key, queue)，正确应为freqMap.put(freq, queue)；
+3. put方法没有考虑capacity=0情况，导致一上来就是put操作时出现空指针异常。
 
 ## 总结
 
 1. LinkHashMap在元素访问、删除、插入分别对应3个回调函数，通过修改影响这3个回调函数的变量和方法来实现自定义LRU类；
-2. LinkHashMap的双向链表头节点是最老的节点，而尾节点才是最新的节点；
+2. LinkHashMap的双向链表头节点是最老的节点，而尾节点才是最新的节点，或者相反，但总之一定要删除最旧节点；
 3. **未来开发sourcesflow时，各种读写插件加载后的维护也需要用到LRU算法**；
+4. 使用哈希表加FIFO队列实现LRU，使用哈希表加AVL或者双哈希表(别忘了minFreq)实现LFU。实现算法都是类似的：用一个哈希表维护缓存更新，用另一种数据结构维护缓存排序；
+5. **无论是get还是put方法，都要视为“访问”次数加1**。
