@@ -28,6 +28,12 @@ module.exports = {
           position: 'left',
           label: '读书笔记',
         },
+        {
+          to: '/notes',
+          label: '学习笔记',
+          position: 'left',
+          activeBaseRegex: `/notes/`,
+        },
         {to: '/blog', label: 'Blog', position: 'left'},
         {
           href: 'https://github.com/kayhaw',
@@ -100,10 +106,22 @@ module.exports = {
           // Please change this to your repo.
           editUrl:
             'https://github.com/kayhaw/kayhaw.github.io/edit/master/website/blog/',
+          remarkPlugins: [math],
+          rehypePlugins: [katex],
         },
         theme: {
           customCss: require.resolve('./src/css/custom.css'),
         },
+      },
+    ],
+  ],
+  plugins: [
+    [
+      '@docusaurus/plugin-content-docs',
+      {
+        id: 'notes',
+        path: 'notes',
+        routeBasePath: 'notes',
       },
     ],
   ],
