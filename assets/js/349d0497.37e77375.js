@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[9779],{1625:function(e){e.exports=JSON.parse('{"name":"MergeTree","permalink":"/notes/tags/merge-tree","docs":[{"id":"ClickHouse/MergeTree","title":"MergeTree\u8868\u5f15\u64ce","description":"MergeTree","permalink":"/notes/ClickHouse/MergeTree"}],"allTagsPath":"/notes/tags"}')}}]);

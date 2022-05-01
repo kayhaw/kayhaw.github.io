@@ -1,1 +1,0 @@
-"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[8656],{7699:function(s){s.exports=JSON.parse('{"allTagsPath":"/blog/tags","slug":"/blog/tags/source-code-dissection","name":"Source code dissection","count":2,"permalink":"/blog/tags/source-code-dissection"}')}}]);

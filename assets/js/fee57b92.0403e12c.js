@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[2437],{2840:function(a){a.exports=JSON.parse('{"permalink":"/blog/tags/summary","page":1,"postsPerPage":10,"totalPages":1,"totalCount":5,"blogDescription":"Blog","blogTitle":"Blog"}')}}]);

@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[6218],{7134:function(a){a.exports=JSON.parse('{"allTagsPath":"/blog/tags","name":"Manacher","count":1,"permalink":"/blog/tags/manacher"}')}}]);

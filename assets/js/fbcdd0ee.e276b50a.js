@@ -1,1 +1,0 @@
-"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[6757],{1739:function(a){a.exports=JSON.parse('{"allTagsPath":"/blog/tags","slug":"/blog/tags/my-sql","name":"MySQL","count":1,"permalink":"/blog/tags/my-sql"}')}}]);
