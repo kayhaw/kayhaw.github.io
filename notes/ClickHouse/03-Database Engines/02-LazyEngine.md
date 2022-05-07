@@ -1,7 +1,7 @@
 ---
 layout: article
 title: Lazy
-slug: /ClickHouse/Engines/Lazy
+slug: /ClickHouse/DataBase-Engines/Lazy
 tags:
   - ClickHouse
   - Learning Notes

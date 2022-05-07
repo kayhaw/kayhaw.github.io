@@ -1,7 +1,7 @@
 ---
 layout: article
 title: Atomic
-slug: /ClickHouse/Engines/Atomic
+slug: /ClickHouse/Database-Engines/Atomic
 tags:
   - ClickHouse
   - Learning Notes
