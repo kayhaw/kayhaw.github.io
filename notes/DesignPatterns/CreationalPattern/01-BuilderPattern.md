@@ -57,7 +57,7 @@ public class JdbcConf {
     this.password = builder.password;
   }
 
-  public static Builder {
+  public static class Builder {
     private String url;
     private String username;
     private String password;
@@ -92,9 +92,9 @@ JdbcConf conf = new JdbcConf.Builder()
 
 可以看到，用户只许自行选择调用setter方法，最后调用build方法就得到装配好的对象，链式调用也比多行的setter调用更加简洁。此外，还可以给JdbcConf字段加上final修饰，确保状态不可变。
 
-## GOF Builder模式
+## GoF Builder模式
 
-相比于简单Builder模式，《设计模式》一书中给出的Builder模式(这里称之为GOF Builder)稍微复杂些：增加了Director和ConcreteBuilder两个角色。
+相比于简单Builder模式，《设计模式》一书中给出的Builder模式(这里称之为GoF Builder)稍微复杂些：增加了Director和ConcreteBuilder两个角色。
 
 ## Builder模式与类继承
 
@@ -102,4 +102,167 @@ JdbcConf conf = new JdbcConf.Builder()
 
 ### 重写父类setter方法
 
+如果让MysqlConf.Builder直接继承JdbcConf.Builder，在调用JdbcConf.Builder的setter方法后，返回的Builder类型为JdbcConf.Builder，这意味着不能再调用MysqlConf.Builder的setter方法。此时对setter链式调用的顺序有要求，不能先调用父类Builder的setter方法。为了解决这个问题，子类Builder必须重写父类Builder的setter方法，将其返回值类型改为子类Builder，如下代码所示：
+
+```java title=JdbcConf.java
+public class JdbcConf {
+    /* JDBC连接地址 */
+    private String url;
+    /* JDBC用户名 */
+    private String username;
+    /* JDBC密码 */
+    private String password;
+
+    protected JdbcConf(Builder builder) {
+        this.url = builder.url;
+        this.username = builder.username;
+        this.password = builder.password;
+    }
+
+    public static class Builder {
+        private String url;
+        private String username;
+        private String password;
+
+        public Builder setUrl(String url) {
+            this.url = url;
+            return this;
+        }
+
+        public Builder setUsername(String username) {
+            this.username = username;
+            return this;
+        }
+
+        public Builder setPassword(String password) {
+            this.password = password;
+            return this;
+        }
+
+        public JdbcConf build() {
+            return new JdbcConf(this);
+        }
+    }
+}
+```
+
+```java title=MysqlConf.java
+public class MysqlConf extends JdbcConf {
+    private String preSql;
+
+    private MysqlConf(Builder builder) {
+        super(builder);
+        this.preSql = builder.preSql;
+    }
+
+    public static class Builder extends JdbcConf.Builder {
+        private String preSql;
+
+        Builder setPreSql(String preSql) {
+            this.preSql = preSql;
+            return this;
+        }
+
+        @Override
+        public JdbcConf.Builder setUrl(String url) {
+            super.setUrl(url);
+            return this;
+        }
+
+        @Override
+        public JdbcConf.Builder setUsername(String username) {
+            super.setUsername(username);
+            return this;
+        }
+
+        @Override
+        public JdbcConf.Builder setPassword(String password) {
+            super.setPassword(password);
+            return this;
+        }
+
+        public MysqlConf build() {
+            return new MysqlConf(this);
+        }
+    }
+}
+```
+
 ### 泛型Builder类
+
+仔细分析继承父类Builder后会导致问题的根本原因：调用父类Builder的setter方法后，返回的是父类Builder，导致找不到子类Builder的setter方法。重写父类Builder的setter方法就是直接修改返回类型，但是重写代码太多很容易忘记。如果就想复用父类Builder的代码又让返回类型能够动态改变，该怎么实现？泛型刚好满足这个条件啊，使用泛型参数作为返回类型不就可以吗！实现代码如下所示：
+
+```java title=JdbcConf.java
+public class JdbcConf {
+    /* JDBC连接地址 */
+    private String url;
+    /* JDBC用户名 */
+    private String username;
+    /* JDBC密码 */
+    private String password;
+
+    protected JdbcConf(Builder builder) {
+        this.url = builder.url;
+        this.username = builder.username;
+        this.password = builder.password;
+    }
+
+    public abstract static class Builder<T extends Builder<T>> {
+        private String url;
+        private String username;
+        private String password;
+
+        public abstract T self();
+
+        public T setUrl(String url) {
+            this.url = url;
+            return self();
+        }
+
+        public Builder setUsername(String username) {
+            this.username = username;
+            return self();
+        }
+
+        public Builder setPassword(String password) {
+            this.password = password;
+            return self();
+        }
+
+        public JdbcConf build() {
+            return new JdbcConf(this);
+        }
+    }
+}
+```
+
+```java title=MysqlConf.java
+public class MysqlConf extends JdbcConf {
+    private String preSql;
+
+    private MysqlConf(Builder builder) {
+        super(builder);
+        this.preSql = builder.preSql;
+    }
+
+    public static class Builder extends JdbcConf.Builder<Builder> {
+        private String preSql;
+
+        Builder setPreSql(String preSql) {
+            this.preSql = preSql;
+            return this;
+        }
+
+        @Override
+        public Builder self() {
+            return this;
+        }
+
+        public MysqlConf build() {
+            return new MysqlConf(this);
+        }
+    }
+}
+```
+
+这里的泛型类Builder比较抽象，源自于C++的递归模板模式(Curiously Recurring Template Pattern, CRTP)：泛型类的泛型参数又和泛型类自身有关。另外的关键点是**抽象方法**self()，它由子类实现来返回子类Builder，由此解决Builder类继承带来的返回类型不正确问题。
