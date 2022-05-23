@@ -94,7 +94,95 @@ JdbcConf conf = new JdbcConf.Builder()
 
 ## GoF Builder模式
 
-相比于简单Builder模式，《设计模式》一书中给出的Builder模式(这里称之为GoF Builder)稍微复杂些：增加了Director和ConcreteBuilder两个角色。
+相比于简单Builder模式，《设计模式》一书中给出的Builder模式(这里称之为GoF Builder)稍微复杂些，增加了Director和ConcreteBuilder两个角色，如下UML图所示：
+
+![builder-pattern.svg](/img/notes/designpatterns/builder-pattern.svg)
+
+首先是Direct类，由它来调用Builder类的各个构建方法(传参固定?:confused:)：
+
+```java title=Director.java
+public class Director {
+    private Builder builder;
+
+    public Director(Builder builder) {
+        this.builder = builder;
+    }
+
+    public void construct() {
+        builder.reset();
+        builder.setUrl("jdbc://localhost:3306/kayhaw");
+        builder.setUsername("kayhaw");
+        builder.setPassword("kayhaw123");
+    }
+}
+```
+
+其次是Builder抽象类，它定义了各个setter方法和build方法：
+
+```java title=Builder.java
+public abstract class Builder {
+    public abstract void reset();
+    public abstract void setUrl(String url);
+    public abstract void setUsername(String username);
+    public abstract void setPassword(String password);
+
+    public abstract JdbcConf build();
+}
+```
+
+接着是Builder抽象类的实现子类JdbcBuilder，它实现了抽象Builder类的setter方法：
+
+```java title=JdbcBuilder.java
+public class JdbcBuilder extends Builder {
+    private JdbcConf conf;
+
+    public JdbcBuilder() {
+        this.conf = new JdbcConf();
+    }
+
+    @Override
+    public void reset() {
+        this.conf = new JdbcConf();
+    }
+
+    @Override
+    public void setUrl(String url) {
+        this.conf.setUrl(url);
+    }
+
+    @Override
+    public void setUsername(String username) {
+        this.conf.setUsername(username);
+    }
+
+    @Override
+    public void setPassword(String password) {
+        this.conf.setPassword(password);
+    }
+
+    @Override
+    public JdbcConf build() {
+        JdbcConf conf = this.conf;
+        this.reset();
+        return conf;
+    }
+}
+```
+
+基于此的Builder模式使用代码如下：
+
+```java title=Application.java
+public class Application {
+    public static void main(String[] args) {
+        Builder builder = new JdbcBuilder();
+        Director director = new Director(builder);
+        director.construct();
+        JdbcConf conf = builder.build();
+    }
+}
+```
+
+实际场景中多会使用简化版的Builder模式实现而不是GoF Builder模式，因为后者用起来更复杂。
 
 ## Builder模式与类继承
 
@@ -102,7 +190,7 @@ JdbcConf conf = new JdbcConf.Builder()
 
 ### 重写父类setter方法
 
-如果让MysqlConf.Builder直接继承JdbcConf.Builder，在调用JdbcConf.Builder的setter方法后，返回的Builder类型为JdbcConf.Builder，这意味着不能再调用MysqlConf.Builder的setter方法。此时对setter链式调用的顺序有要求，不能先调用父类Builder的setter方法。为了解决这个问题，子类Builder必须重写父类Builder的setter方法，将其返回值类型改为子类Builder，如下代码所示：
+如果让MysqlConf.Builder直接继承JdbcConf.Builder，在调用JdbcConf.Builder的setter方法后，返回的Builder类型为JdbcConf.Builder，这意味着不能再调用MysqlConf.Builder的setter方法。此时对setter链式调用的顺序有要求，不能先调用父类Builder的setter方法。为了解决这个问题，子类Builder可以重写父类Builder的setter方法，将其返回值类型改为子类Builder，如下代码所示：
 
 ```java title=JdbcConf.java
 public class JdbcConf {
@@ -265,4 +353,4 @@ public class MysqlConf extends JdbcConf {
 }
 ```
 
-这里的泛型类Builder比较抽象，源自于C++的递归模板模式(Curiously Recurring Template Pattern, CRTP)：泛型类的泛型参数又和泛型类自身有关。另外的关键点是**抽象方法**self()，它由子类实现来返回子类Builder，由此解决Builder类继承带来的返回类型不正确问题。
+这里的泛型类Builder比较抽象，源自于C++的递归模板模式(Curiously Recurring Template Pattern, CRTP)：泛型类的泛型参数又和泛型类自身有关。另外的关键点是**抽象方法**self()，它必须由子类实现以返回子类Builder，从而解决Builder类继承带来的返回类型不正确问题。
