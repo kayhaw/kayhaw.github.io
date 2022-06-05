@@ -127,3 +127,205 @@ ACK响应指由消费者发送给broker的应答，收到该应答即意味着�
 累计ACK是某个偏移位置消息的答应，意味着该消息之前的所有消息都已成功处理(批量应答)，所有订阅模式都支持累计ACK(Cumulative Ack)。
 
 ![Cumulative Ack](/img/doc/Master-Apache-Pulsar/chap05/cumulative-ack.png)
+
+## 模式
+
+模式(schema)是Pulsar生态中可选但是颇具影响的部分，本节介绍消费者与模式的交互部分。
+
+### 消费者模式管理
+
+消费者和模式的交互有2种：
+
+1. 当topic设置了schema，消费者只需要按照schema解码消息(schema随着消息一块发送)；
+2. 当topic没有设置schema，消费者自行注册schema。
+
+## 消费模式
+
+一个一个串行地消费消息可能是最好的，但Pulsar提供额外的消费模式。
+
+### 批处理
+
+批处理(Batching)模式对消费者没有什么重大影响，只不过消费者会对整批的消息响应ACK。在Pulsar 2.8版本之前，如果消费者在处理最后几条消息时挂掉，批处理模式下需要重头开始处理。但自Pulsar 2.8起，引入批索引(batch index)准确地指出上一个批处理的结束位置。
+
+![Batching Consumption](/img/doc/Master-Apache-Pulsar/chap05/batching-consumption.png)
+
+### 块处理
+
+块处理模式下消费者接收带有元数据消息块，将其拼接完整后回复ACK，如下图所示：
+
+![Chunk Consumption](/img/doc/Master-Apache-Pulsar/chap05/chunk-consumption.png)
+
+## 高级设置
+
+### 延迟消息
+
+延迟消息指延迟发送消息，**只能**在共享订阅下使用。如下图所示，当消费者获取topic中的延迟消息，由DelayedDeliveryTracker配置超时时间后才发送消息给消费者。
+
+![Delayed Messages](/img/doc/Master-Apache-Pulsar/chap05/delayed-messages.png)
+
+```java
+producer.newMessage().deliverAfter(5L, TimeUnit.Minute).
+    value("Hello Moto!").send();
+```
+
+### 保留策略
+
+Pulsar提供2个参数来配置**已响应消息**的保留策略：保留时间、保留大小。如下所示通过Pulsar Admin命令行工具设置消息保留时间为3小时，保留大小为10GB：
+
+```bash
+pulsar-admin namespaces set-retention 
+    my-tenant/new-namespace \
+    --size 10G \
+    --time 3h
+```
+
+| 保留时间 | 保留大小 | 保留策略                    |
+| -------- | -------- | ------------------------- |
+| -1       | -1       | 永久保留                   |
+| -1       | >0       | 达到指定大小后不再保        |
+| 0        | -1       | 达到指定时间后不再保留      |
+| 0        | 0        | 禁用保留                   |
+| 0        | >0       | 无效值                     |
+| >0       | 0        | 无效值                     |
+| >0       | >0       | 达到指定时间或大小后不再保留 |
+
+### 积压配额
+
+默认情况下，Pulsar保存所有**未响应消息**，通过积压配额(Backlog Quotas)设置未响应消息的保留策略：
+
+```bash
+pulsar-admin namespaces set-backlog-quota my-tenant/my-namespace \
+  --limit 2G \
+  --limitTime 36000 \
+  --policy producer_request_hold
+```
+
+当未响应消息达到积压配额后，通过`policy`参数设置接下来的行为：
+
+- **producer_request_hold**：broker不再保留消息；
+- **producer_exception**：broker断开连接并抛出异常；
+- **consumer_backlog_eviction**：broker删除积压消息。
+
+此外，还可以设置消息TTL：
+
+```bash
+pulsar-admin namespaces set-message-ttl my-tenant/my-namespace \
+    --messageTTL 120 # 单位秒
+```
+
+:::info 积压配额和保留策略异同
+相同点：
+
+- 提供时间、体积2种配置参数
+- 设置级别为namespace
+
+不同点：
+
+- 保留策略直接删除，积压配额行为由设置决定
+- 保留策略针对已响应消息，积压配额针对未响应消息
+:::
+
+## 消费者配置
+
+### Replay
+
+重放消息(replay)指从头开始读取topic中的消息，Pulsar提供3种方式：
+
+- 代码重置游标：
+
+```java
+import org.apache.pulsar.client.api.MessageId;
+import org.apache.pulsar.client.api.Reader;
+
+Reader<byte[]> reader = pulsarClient.newReader()
+    .topic("read-from-topic")
+    .startMessageId(MessageId.earliest) // get data at earliest offset
+    .create();
+
+while (true) {
+    Message message = reader.readNext();
+
+    // Get messages after this point
+}
+```
+
+![Replay](/img/doc/Master-Apache-Pulsar/chap05/replay.png)
+
+- 设置negative ACK：
+
+```java
+Consumer<byte[]> consumer = 
+        Client
+            .newConsumer()
+            .subscriptionType(SubscriptionType.Key_Shared)
+            .subscriptionName("abc-sub")
+            .topic("abbc")
+            .subscribe();
+while (true) {
+    Message<byte[]> message = consumer.receive(100, TimeUnit.MILLISECONDS);
+    if (message != null) {
+    System.out.println(new String(message.getData()));
+    consumer.negativeAcknowledge(message);
+}
+```
+
+![Negative ACK](/img/doc/Master-Apache-Pulsar/chap05/negative-ack.png)
+
+- 命令行重置游标：
+
+```bash
+pulsar-admin topics reset-cursor topic a --subscription my-subscription
+
+POST/admin/persistent/:tenant/:namespace/
+    :destination/subscription/:subName/resetcursor
+```
+
+### Dead Letter Topics
+
+当遇到不能被处理的消息(模式校验失败、消费者不能及时处理、消费者处理时故障)时，可设置Dead Letter Topic保存失败消息，在Pulsar中消息失败表现为2种：negative ACK、ACK超时。通过如下代码设置订阅的Dead Letter Topic:
+
+```java
+Consumer<byte[]> consumer = pulsarClient.newConsumer(Schema.BYTES)
+    .topic(topic)
+    .subscriptionName("hello-moto")
+    .subscriptionType(SubscriptionType.Shared)
+    .deadLetterPolicy(DeadLetterPolicy.builder()
+        .maxRedeliverCount(maxRedeliveryCount)
+        .deadLetterTopic("hello-moto-dlq") // 设置dead letter topic名称
+        .build())
+    .subscribe();
+```
+
+默认dead letter topic的名称为`<topicname>-<subscriptionname>-DLQ`，也可以代码设置。
+
+### Retry Letter Topic
+
+Retry letter topic用于消费者重新获取消息：
+
+```java
+Consumer<byte[]> consumer = pulsarClient.newConsumer(Schema.BYTES)
+    .topic(topic)
+    .subscriptionName("scary-hours")
+    .subscriptionType(SubscriptionType.Shared)
+    .enableRetry(true)
+    .receiverQueueSize(100)
+    .deadLetterPolicy(DeadLetterPolicy.builder()
+        .maxRedeliverCount(maxRedeliveryCount)
+        .retryLetterTopic("persistent://my-property/my-ns/scary-hours-retry-Retry")
+        .build())
+    .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest)
+    .subscribe();
+```
+
+## 总结
+
+1. Pular将消费者和topic之间的交互配置抽象为订阅(subscription)，分为如下4种：
+   1. 独家订阅：一对一关系；
+   2. 共享订阅：一对多关系；
+   3. Key_Shared：共享订阅的一种特殊情况；
+   4. Failvoer订阅：类似消费者组。
+2. 消息者接收到topic消息后给broker回复ACK，分为单个ACK和累计ACK两种；
+3. 除了逐个消费外，Pulsar还有批处理和块处理两种模式；
+4. 生产者可以设置消息延迟，只适用于共享订阅；
+5. 已响应消息处理由保留策略决定，未响应消息处理由积压配额决定；
+6. 消费者设置选择replay消息，当处理消息失败时设置dead letter topic保存失败消息。
