@@ -11,8 +11,6 @@ description: FlinkX源码剖析(3)
 hide_table_of_contents: false
 ---
 
-## DtInputFormatSourceFunction
-
 对于JDBC读插件工厂类JdbcSourceFactory，其createSource方法调用createInput方法，返回DataStream完成输入流接入，代码如下：
 
 ```java
@@ -34,7 +32,8 @@ protected DataStream<RowData> createInput(
 }
 ```
 
-由于JdbcSourceFactory的子类如MysqlSourceFactory等都没有重写createSource方法，因此env.addSource添加的SourceFunction都是DtInputFormatSourceFunction，只不过各子类inputFormat不同而表现差异化。DtInputFormatSourceFunction类继承关系如下图所示，本篇文章就其涉及的Flink核心类按从上到下的顺序进行源码解析(主要是注释翻译吧:smile:)，进一步熟悉Flink API。
+由于JdbcSourceFactory的子类如MysqlSourceFactory等都没有重写createSource方法，因此env.addSource添加的SourceFunction都是DtInputFormatSourceFunction，只不过各子类inputFormat不同而表现差异化。DtInputFormatSourceFunction类继承关系如下图所示，本篇文章就其涉及的Flink核心类按从上到下的顺序进行源码解析，进一步熟悉Flink API。
+<!--truncate-->
 
 ![DtInputFormatSourceFunction](/img/blog/FlinkXDissection/DtInputFormatSourceFunction.png)
 
@@ -90,9 +89,41 @@ public class MyFilter extends RichFilterFunction<String> {
 
 设置函数的上下文，由Flink框架调用。
 
+### AbstractRichFunction
+
+AbstractRichFunction是实现RichFunction的抽象类，作为具体udf类和RichFunction接口中的一种过渡形态，通过`private transient RuntimeContext runtimeContext`声明运行时上下文环境，继而实现了RichFunction的setRuntimeContext、
+getRuntimeContext和getIterationRuntimeContext方法。
+
+```java
+@Override
+public void setRuntimeContext(RuntimeContext t) {
+  this.runtimeContext = t;
+}
+
+@Override
+public RuntimeContext getRuntimeContext() {
+  if (this.runtimeContext != null) {
+    return this.runtimeContext;
+  } else {
+    throw new IllegalStateException("The runtime context has not been initialized.");
+  }
+}
+
+@Override
+public IterationRuntimeContext getIterationRuntimeContext() {
+  if (this.runtimeContext == null) {
+    throw new IllegalStateException("The runtime context has not been initialized.");
+  } else if (this.runtimeContext instanceof IterationRuntimeContext) {
+    return (IterationRuntimeContext) this.runtimeContext;
+  } else {
+    throw new IllegalStateException("This stub is not part of an iteration step function.");
+  }
+}
+```
+
 ## SourceFunction
 
-SourceFunction接口也继承自Function，是所有source数据流的接口。当需要发送数据时，SourceFunction的run方法被调用，通过循环不断地生成数据，调用cancel方法后循环被打断。
+SourceFunction接口也继承自Function，并添加了表示输出元素类型的泛型参数，是所有source数据流的接口。当需要发送数据时，SourceFunction的run方法被调用，通过循环不断地生成数据，调用cancel方法后循环被打断。
 
 - `void run(SourceContext<T> ctx) throws Exception`
 
@@ -162,3 +193,173 @@ SourceFunction接口内部自带SourceContext接口，声明如下方法：
 - `Object getCheckpointLock()`：获取检查点同步锁。
 
 - `void close()`：关闭上下文环境。
+
+### ParallelSourceFunction
+
+ParallelSourceFunction接口继承自SourceFunction接口，但并没有声明其他方法或字段。作为一个标记接口，它告诉Flink框架该source function可以并行执行。当不同实例执行不同task时，通过RichParallelSourceFunction获取运行环境，里面包含所有并行任务的个数和当前任务编号。
+
+```java
+public interface ParallelSourceFunction<OUT> extends SourceFunction<OUT> {}
+```
+
+## RichParallelSourceFunction
+
+RichParallelSourceFunctionk抽象类继承自AbstractRichFunction抽象类，实现了ParallelSourceFunction接口，**即RichFunction和SourceFunction的结合体**。作为并行数据源的基类，既可以获取上下文信息，又提供管理函数声明周期的open和close方法。
+
+```java
+public abstract class RichParallelSourceFunction<OUT> extends AbstractRichFunction
+    implements ParallelSourceFunction<OUT> {
+
+  private static final long serialVersionUID = 1L;
+}
+```
+
+### InputFormatSourceFunction
+
+到目前为止，除了RichParallelSourceFunction干了点小事外，其他涉及的接口、抽象类都没干啥事。作为混血儿抽象类RichParallelSourceFunction的子类，InputFormatSourceFunction总算开始干活了(实现接口方法)。
+
+类如其名，InputFormatSourceFunction通过InputFormat来实现数据读取，具体地，它声明了如下几个私有字段：
+
+```java
+private TypeInformation<OUT> typeInfo;
+private transient TypeSerializer<OUT> serializer;
+private InputFormat<OUT, InputSplit> format;
+private transient InputSplitProvider provider;
+private transient Iterator<InputSplit> splitIterator;
+private volatile boolean isRunning = true;
+```
+
+由于InputFormatSourceFunction兼具了RichFunction和SourceFunction接口，现在要实现它们声明的方法。对于RichFunction部分，需要实现open和close方法：
+
+```java
+public void open(Configuration parameters) throws Exception {
+  StreamingRuntimeContext context = (StreamingRuntimeContext) getRuntimeContext();
+
+  if (format instanceof RichInputFormat) {
+    ((RichInputFormat) format).setRuntimeContext(context);
+  }
+  format.configure(parameters);
+
+  provider = context.getInputSplitProvider();
+  serializer = typeInfo.createSerializer(getRuntimeContext().getExecutionConfig());
+  splitIterator = getInputSplits();
+  isRunning = splitIterator.hasNext();
+}
+
+public void close() throws Exception {
+  format.close();
+  if (format instanceof RichInputFormat) {
+    ((RichInputFormat) format).closeInputFormat();
+  }
+}
+```
+
+由于是借助于InputFormat实现数据读取功能，因此在open方法里面是进行format的初始化配置(调用format.configure(parameters)，参数类型也刚好是Configuration，都是设计好:smirk:)，接着初始化其他字段。同样地，在close方法调用的也是format.close()。这里要注意在open和close中，通过instanceof检查format是否为RichInputFormat，如果是的话还要在分别调用setRuntimeContext(不是openInputFormat)和closeInputFormat()方法。
+
+对于SourceFunction部分，需要实现run和cancel方法。cancel方法很简单，就是将isRunning置为false，重点分析run方法。
+
+```java title=InputFormatSourceFunction.run
+public void run(SourceContext<OUT> ctx) throws Exception {
+  try {
+
+    Counter completedSplitsCounter =
+      getRuntimeContext().getMetricGroup().counter("numSplitsProcessed");
+    if (isRunning && format instanceof RichInputFormat) {
+      ((RichInputFormat) format).openInputFormat();
+    }
+
+    OUT nextElement = serializer.createInstance();
+    while (isRunning) {
+      format.open(splitIterator.next());
+
+      // for each element we also check if cancel
+      // was called by checking the isRunning flag
+
+      while (isRunning && !format.reachedEnd()) {
+        nextElement = format.nextRecord(nextElement);
+        if (nextElement != null) {
+          ctx.collect(nextElement);
+        } else {
+          break;
+        }
+      }
+      format.close();
+      completedSplitsCounter.inc();
+
+      // 不是cancel调用打断的(当前format已经输出结束)，处理下一个split
+      if (isRunning) {
+        isRunning = splitIterator.hasNext();
+      }
+    }
+  } finally {
+    format.close();
+    if (format instanceof RichInputFormat) {
+      ((RichInputFormat) format).closeInputFormat();
+    }
+    isRunning = false;
+  }
+}
+```
+
+1. 获取numSplitsProcessed指标，在format输出完成关闭后加1；
+2. 如果format是RichInputFormat，则调用其openInputFormat方法；
+3. 调用serializer.createInstance()方法创建一个示例数据对象nextElement；对于PojoSerializer会通过反射调用其无参构造函数返回对象(接口或抽象类返回null)，对于基本类型会返回其**零值**(数值类型是0，String类型是空字符串)；这里是为了得到一个"初始状态"的对象，因为在后面的循环中nextElement会不断被设置新数据；
+4. while循环发送数据：
+   1. 调用format.open方法，注意参数必须是InputSplit的子类，即InputFormat工作和InputSplit强绑定在一起；
+   2. 再次while循环，**这里不能改成`if(isRunning && !format.reachedEnd())`**！由format.nextRecord生成新记录，然后调用ctx.collect发送；
+   3. 关闭format;
+   4. numSplitsProcessed加1；
+   5. 单独判断isRunning。
+5. finally块关闭format，isRunning设置为false。
+
+最后是两个gettter方法分别返回format和splitIterator，**注意没有直接返回splitIterator**而是new了一个Iterator<InputSplit\>对象返回。
+
+:::tip :confused: Q&A
+
+1. format.nextRecord方法为什么需要传入一个空对象参数，它自己new一个返回不就行了吗？对象重用！
+2. 运行状态的判断，为什么format关闭后还要单独进行isRunning的状态设置，不应该直接设置为false吗？format关闭后只是当前的split范围内数据以发送，但split有多个，只有当所有split都处理后才关闭。
+3. RichFormat的close和claseInputFormat方法有什么区别？
+4. 为什么getFormat直接return format而getInputSplits要new Iterator<InputSplit\>？迭代器模式下每次获取的Iterator是不可复用的，每次需要返回新的！
+:::
+
+## DtInputFormatSourceFunction
+
+最后回到DtInputFormatSourceFunction，它继承自InputFormatSourceFunction并且**实现了CheckpointedFunction**，因此需要实现snapshotState和initializeState方法：
+
+```java
+public void snapshotState(FunctionSnapshotContext context) throws Exception {
+  FormatState formatState = ((BaseRichInputFormat) format).getFormatState();
+  if (formatState != null) {
+    LOG.info("InputFormat format state:{}", formatState);
+    unionOffsetStates.clear();
+    unionOffsetStates.add(formatState);
+  }
+}
+
+public void initializeState(FunctionInitializationContext context) throws Exception {
+  OperatorStateStore stateStore = context.getOperatorStateStore();
+  LOG.info("Start initialize input format state, is restored:{}", context.isRestored());
+  unionOffsetStates =
+    stateStore.getUnionListState(
+      new ListStateDescriptor<>(
+        LOCATION_STATE_NAME,
+        TypeInformation.of(new TypeHint<FormatState>() {})));
+  if (context.isRestored()) {
+    formatStateMap = new HashMap<>(16);
+    for (FormatState formatState : unionOffsetStates.get()) {
+      formatStateMap.put(formatState.getNumOfSubTask(), formatState);
+      LOG.info("Input format state into:{}", formatState);
+    }
+  }
+  LOG.info("End initialize input format state");
+}
+```
+
+DtInputFormatSourceFunction使用列表状态保存其每个InputFormat的状态，状态基本类型时FormatState，它来自BaseRichInputFormat。initializeState是状态初始化方法，首先从上下文环境中获取列表状态保存到unionOffsetStates，然后将其转为键值对形式的formatStateMap便于快速定位状态(没有map类型状态吗:confused:？)。snapshotState是保存状态方法，注意会清空unionOffsetStates。关于InputFormat的解析见下篇文章。
+
+## 总结
+
+1. RichFunction和SourceFunction都继承自Function接口，但后者添加了表示输出类型的泛型参数；
+2. RichFunction关键方法；open和close；SourceFunction关键方法：run和cancel；
+3. [To be done]RichInputFormat的open和openInputFormat方法区别；
+4. DtInputFormatSourceFunction使用自定义BaseRichInputFormat实现数据输出和状态保存。
