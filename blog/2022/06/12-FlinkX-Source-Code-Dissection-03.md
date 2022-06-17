@@ -32,7 +32,7 @@ protected DataStream<RowData> createInput(
 }
 ```
 
-由于JdbcSourceFactory的子类如MysqlSourceFactory等都没有重写createSource方法，因此env.addSource添加的SourceFunction都是DtInputFormatSourceFunction，只不过各子类inputFormat不同而表现差异化。DtInputFormatSourceFunction类继承关系如下图所示，本篇文章就其涉及的Flink核心类按从上到下的顺序进行源码解析，进一步熟悉Flink API。
+由于JdbcSourceFactory的子类如MysqlSourceFactory等都没有重写createSource方法，因此env.addSource添加的SourceFunction都是DtInputFormatSourceFunction，只不过各子类InputFormat不同而表现差异化。DtInputFormatSourceFunction类继承关系如下图所示，本篇文章就其涉及的Flink核心类按从上到下的顺序进行源码解析，进一步熟悉Flink API。
 <!--truncate-->
 
 ![DtInputFormatSourceFunction](/img/blog/FlinkXDissection/DtInputFormatSourceFunction.png)
