@@ -90,3 +90,68 @@ private void initStatisticsAccumulator() {
   inputMetric.addMetric(Metrics.READ_DURATION, durationCounter);
 }
 ```
+
+除此之外，FlinkX还将以上3个指标数据作为保存到formatState中。Flink自定义FormatState类表示Format状态，它保存了`Map<String, LongCounter\> metric`、numOfSubTask、jobId等数据。BaseRichInputFormat通过getFormatState方法获取/更新Format状态：
+
+```java
+public FormatState getFormatState() {
+  if (formatState != null && numReadCounter != null && inputMetric != null) {
+    formatState.setMetric(inputMetric.getMetricCounters());
+  }
+  return formatState;
+}
+```
+
+## FormatState
+
+### 更新与保存
+
+尽管在FlinkX在BaseRichInputFormat上建立了状态(FormatState)，但是Flink框架提供的状态保存、恢复是作用于其上一层SourceFunction(需要实现CheckpointedFunction接口)。为此，DtInputFormatSourceFunction通过`Map<Integer, FormatState> formatStateMap`字段保存其下所有子任务的InputFormat状态(key为子任务编号)。具体地，它实现的2个CheckpointedFunction接口方法如下：
+
+```java
+// 进行1次快照备份，注意getFormatState会从inputMetric中重新获取指标数据
+public void snapshotState(FunctionSnapshotContext context) throws Exception {
+    FormatState formatState = ((BaseRichInputFormat) format).getFormatState();
+    if (formatState != null) {
+      LOG.info("InputFormat format state:{}", formatState);
+      unionOffsetStates.clear();
+      unionOffsetStates.add(formatState);
+    }
+}
+
+// 状态初始化(检查点恢复)
+public void initializeState(FunctionInitializationContext context) throws Exception {
+  OperatorStateStore stateStore = context.getOperatorStateStore();
+  LOG.info("Start initialize input format state, is restored:{}", context.isRestored());
+  unionOffsetStates =
+    stateStore.getUnionListState(
+      new ListStateDescriptor<>(
+        LOCATION_STATE_NAME,
+        TypeInformation.of(new TypeHint<FormatState>() {})));
+  // 检查点恢复formatStateMap状态
+  if (context.isRestored()) {
+    formatStateMap = new HashMap<>(16);
+    for (FormatState formatState : unionOffsetStates.get()) {
+      formatStateMap.put(formatState.getNumOfSubTask(), formatState);
+      LOG.info("Input format state into:{}", formatState);
+    }
+  }
+  LOG.info("End initialize input format state");
+}
+```
+
+:::tip 小结
+
+1. `BaseMetric inputMetric`字段是`MetricGroup flinkxOutput`和`Map<String, LongCounter> metricCounters`的封装，只提供指标添加和获取，注意修饰符为transient；
+2. `FormatState formatState`是inputMetric中metricCounters和其他数据(子任务编号，任务id等)的封装，作为状态包含指标在内的所有信息；
+3. `Map<Integer, FormatState> formatStateMap`是每个InputFormat的formatState聚合封装，key是子任务编号，value是该子任务对应的InputFormat状态，即DtInputFormatSourceFunction的状态是一组FormatState。
+:::
+
+### 状态生命周期
+
+1. 如果DtInputFormatSourceFunction从检查点中恢复，调用initializeState方法给formatStateMap赋值；
+2. DtInputFormatSourceFunction的open方法，检查formatStateMap是否为null，不是null进行InputFormat的状态设置(调用BaseRichInputFormat的setRestoreState方法，即设置FormatState)；
+3. BaseRichInputFormat的open方法调用initRestoreInfo判断FormatState是否为空：
+   1. 为空说明是第一次运行，此时自己new一个FormatState
+   2. 不为空说明是恢复运行，上层的SourceFunction已经通过setRestoreState将状态恢复，此时重新将状态中的统计指标值添加到当前指标中；
+4. DtInputFormatSourceFunction的snapshotState方法(检查点保存)调用BaseRichInputFormat的getFormatState方法，后者从inputMetric中更新FormatState的指标数据后返回。
