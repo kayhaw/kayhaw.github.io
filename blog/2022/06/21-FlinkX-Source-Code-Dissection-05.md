@@ -155,3 +155,154 @@ public void initializeState(FunctionInitializationContext context) throws Except
    1. 为空说明是第一次运行，此时自己new一个FormatState
    2. 不为空说明是恢复运行，上层的SourceFunction已经通过setRestoreState将状态恢复，此时重新将状态中的统计指标值添加到当前指标中；
 4. DtInputFormatSourceFunction的snapshotState方法(检查点保存)调用BaseRichInputFormat的getFormatState方法，后者从inputMetric中更新FormatState的指标数据后返回。
+
+## AccumulatorCollector
+
+FlinkX自定义AccumulatorCollector类来表示指标累加器收集器，核心是一个**单线程池**，每个BaseRichInputFormat包含一个该类字段accumulatorCollector。
+
+### 初始化和启动
+
+收集器accumulatorCollector在InputFormat的open方法中调用initAccumulatorCollector对其进行初始化，给出要收集指标的名称并启动收集线程，代码如下：
+
+```java
+private void initAccumulatorCollector() {
+  String lastWriteLocation =
+          String.format("%s_%s", Metrics.LAST_WRITE_LOCATION_PREFIX, indexOfSubTask);
+  String lastWriteNum =
+          String.format("%s_%s", Metrics.LAST_WRITE_NUM__PREFIX, indexOfSubTask);
+
+  accumulatorCollector =
+    new AccumulatorCollector(
+      context,
+      Arrays.asList(
+        Metrics.NUM_READS,
+        Metrics.READ_BYTES,
+        Metrics.READ_DURATION,
+        Metrics.WRITE_BYTES,
+        Metrics.NUM_WRITES,
+        lastWriteLocation,
+        lastWriteNum));
+  accumulatorCollector.start();
+}
+```
+
+从代码中可以看到，**accumulatorCollector和intputMetric以及formatState最大的不同是它包含读和写2方面的指标，而后两者单独只是读相关指标**，而start方法会启动线程池周期性地收集指标。
+
+### 收集指标
+
+AccumulatorCollector使用ScheduledExecutorService线程池，每次只启动一个线程，start方法调用后线程池以固定间隔(TaskManager心跳加1秒)运行collectAccumulator方法收集指标，代码如下：
+
+```java
+public void collectAccumulator() {
+  CompletableFuture<ArchivedExecutionGraph> archivedExecutionGraphFuture =
+    gateway.requestJob(Time.seconds(10));
+  ArchivedExecutionGraph archivedExecutionGraph;
+  try {
+    archivedExecutionGraph = archivedExecutionGraphFuture.get();
+  } catch (Exception e) {
+    // 限制最大出错次数，超过最大次数则使任务失败，如果不失败，统计数据没有及时更新，会影响速率限制，错误控制等功能
+    collectErrorTimes++;
+    if (collectErrorTimes > MAX_COLLECT_ERROR_TIMES) {
+      // 主动关闭线程和资源，防止异常情况下没有关闭
+      close();
+      throw new RuntimeException(
+        "The number of errors in updating statistics data exceeds the maximum limit of 100 times. To ensure the correctness of the data, the task automatically fails");
+    }
+    return;
+  }
+  StringifiedAccumulatorResult[] accumulatorResult =
+    archivedExecutionGraph.getAccumulatorResultsStringified();
+  for (StringifiedAccumulatorResult result : accumulatorResult) {
+    ValueAccumulator valueAccumulator = valueAccumulatorMap.get(result.getName());
+    if (valueAccumulator != null) {
+      valueAccumulator.setGlobal(Long.parseLong(result.getValue()));
+    }
+  }
+}
+```
+
+可以看到，accumulatorCollector的收集指标是整个Flink作业的数据，而不是某个子任务的指标，这些全局性指标数据是实现流量控制的关键基础。
+
+### 获取指标
+
+FlinkX使用ValueAccumulator表示累加指标，它包含两个2字段：local表示本地(InputFormat实例)的指标，global表示全局(Flink作业)的指标。相应地分别有2个获取指标方法：
+
+```java
+// 获取全局指标值
+public long getAccumulatorValue(String name, boolean needWaited) {
+  if (needWaited) {
+    try {
+      TimeUnit.MILLISECONDS.wait(this.period);
+    } catch (InterruptedException e) {
+      LOG.warn(
+        "Interrupted when waiting for valueAccumulatorMap, e = {}",
+        ExceptionUtil.getErrorMessage(e));
+    }
+  }
+  ValueAccumulator valueAccumulator = valueAccumulatorMap.get(name);
+  if (valueAccumulator == null) {
+    return 0;
+  }
+  return valueAccumulator.getGlobal();
+}
+
+public long getLocalAccumulatorValue(String name) {
+    ValueAccumulator valueAccumulator = valueAccumulatorMap.get(name);
+    if (valueAccumulator == null) {
+      return 0;
+    }
+    return valueAccumulator.getLocal().getLocalValue();
+}
+```
+
+注意获取全局指标时额外加了个needWaited参数，设置为true表示获取最新一次统计的数值。
+
+## ByteRateLimiter
+
+FlinkX使用ByteRateLimiter对InputFormat的读取字节速率进行限制，其本质是RateLimiter和一个**单线程池**的封装。
+
+### 初始化与启动
+
+BaseRichInputFormat类的open方法调用initByteRateLimiter方法初始化ByteRateLimiter，后者代码如下：
+
+```java
+private void initByteRateLimiter() {
+  if (config.getSpeedBytes() > 0) {
+      this.byteRateLimiter =
+        new ByteRateLimiter(accumulatorCollector, config.getSpeedBytes());
+      this.byteRateLimiter.start();
+  }
+}
+```
+
+ByteRateLimiter的构造方法传入2个参数：第一个是指标累计器收集器，通过其提供的读取字节总量和读取记录条数计算当前读取读取速率，因此initByteRateLimiter方法必须在initStatisticsAccumulator之后调用；第二个参数是作业配置的限流大小。接着调用start方法，启动线程池运行一个计算读取速率的线程。
+
+### 更新读取速率
+
+同样地，ByteRateLimiter使用ScheduledExecutorService线程池，每次只启动一个线程，start方法调用后线程池以固定间隔(1秒)运行updateRate方法更新读取速率，代码如下：
+
+```java
+private void updateRate() {
+  // 全局读取字节总数
+  long totalBytes = accumulatorCollector.getAccumulatorValue(Metrics.READ_BYTES, false);
+  // 当前子任务示例读取纪录数
+  long thisRecords = accumulatorCollector.getLocalAccumulatorValue(Metrics.NUM_READS);
+  // 全局读取记录数
+  long totalRecords = accumulatorCollector.getAccumulatorValue(Metrics.NUM_READS, false);
+
+  // 读取占比
+  BigDecimal thisWriteRatio =
+    BigDecimal.valueOf(totalRecords == 0 ? 0 : thisRecords / (double) totalRecords);
+
+  // 至少达到1000条、读取字节量不为0、当前任务有读取记录时才更新
+  if (totalRecords > MIN_RECORD_NUMBER_UPDATE_RATE
+        && totalBytes != 0
+        && thisWriteRatio.compareTo(BigDecimal.ZERO) != 0) {
+    // 当前字节速率
+    double bpr = totalBytes / (double) totalRecords;
+    // 当前限定字节速率=给定限制速率 / 当前字节速率 * 读取占比
+    double permitsPerSecond = expectedBytePerSecond / bpr * thisWriteRatio.doubleValue();
+    rateLimiter.setRate(permitsPerSecond);
+  }
+}
+```
