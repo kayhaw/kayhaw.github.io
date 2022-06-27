@@ -306,3 +306,31 @@ private void updateRate() {
   }
 }
 ```
+
+### 限流使用
+
+ByteRateLimiter本质使用Flink提供的RateLimiter作为限流器实现，后者来自Guava工具包。RateLimiter的基本使用如下代码所示，第一步通过create(double permitsPerSecond)静态方法构造RateLimiter对象，表示每秒钟不能获取超过permitsPerSecond个令牌，第二步在开始工作前调用**同一个RateLimiter对象**的acquire(int permit)方法表获取permit个令牌【注：acquire()等效于acquire(1)】，acquire方法将会阻塞直到有可用permit，由此实现限流。
+
+```java
+// rate is "2 permits per second"
+final RateLimiter rateLimiter = RateLimiter.create(2.0);
+void submitTasks(List<Runnable> tasks, Executor executor) {
+  for (Runnable task : tasks) {
+    rateLimiter.acquire(); // may wait
+    executor.execute(task);
+  }
+}
+```
+
+BaseRichInputFormat的nextRecord方法中获取下条记录前，先调用byteRateLimiter.acquire()尝试获取，如果超过特定频率则acquire()方法阻塞直到合适时间，由此实现InputFormat读取速率的限制。通过代码得到如下permitsPerSecond计算公式：
+
+$$\begin{matrix}
+permit &= configBytePerSecond \div \frac{totalBytes}{totalRecords} \times \frac{localRecords}{totalRecords}\\
+&= configBytePerSecond \times \frac{totalRecords}{totalBytes} \times \frac{localRecords}{totalRecords}\\
+&= configBytePerSecond \times \frac{localRecords}{totalBytes}\\
+&= \frac{totalBytes}{second} \times \frac{localRecords}{totalBytes}\\
+&= \frac{localRecords}{second}
+\end{matrix}
+$$
+
+经过如上公式转换可知，计算得到的permit含义是每秒最大读取记录条数，因此使用acquire(1)而不是acquire(localBytes)。同时FlinkX根据当前子任务实例在全局流量的占比来设置rate，这样实现的流量控制是面向全局的而不是针对当前子任务。
