@@ -15,7 +15,7 @@ tags:
 
 Pulsar提供生产和消费消息的框架，基于Pulsar Function实现。
 
-![Pulsar IO Architecture](/img/doc/Master-Apache-Pulsar/chap07/pulsar-io-architecture.png)
+![Pulsar IO Architecture](/img/doc/Mastering-Apache-Pulsar/chap07/pulsar-io-architecture.png)
 
 ### 运行时
 
@@ -37,7 +37,7 @@ Pulsar IO是一个提供可重复执行、配置驱动的数据传输框架，�
 - 对topic消息的处理是可重复的；
 - 单一数据目标源。
 
-![Simple Event Processing Pipeline](/img/doc/Master-Apache-Pulsar/chap07/simple-event-process-pipeline.png)
+![Simple Event Processing Pipeline](/img/doc/Mastering-Apache-Pulsar/chap07/simple-event-process-pipeline.png)
 
 ### 变更数据捕获(CDC)
 

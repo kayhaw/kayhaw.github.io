@@ -13,7 +13,7 @@ tags:
 
 Pulsar分层存储(Tiered Storage)机制将消息持久化到其他存储服务，如下图所示：
 
-![Tiered Storage Ecosystem](/img/doc/Master-Apache-Pulsar/chap09/tiered-storage-ecosystem.png)
+![Tiered Storage Ecosystem](/img/doc/Mastering-Apache-Pulsar/chap09/tiered-storage-ecosystem.png)
 
 ## 云存储
 
@@ -29,7 +29,7 @@ Pulsar分层存储(Tiered Storage)机制将消息持久化到其他存储服务�
 
 对象存储与文件存储不同，其范式包含：数据、元数据、权限、对象ID。对象没有放在分层的文件系统，而是桶(bucket)中:
 
-![Object Storage](/img/doc/Master-Apache-Pulsar/chap09/object-storage.png)
+![Object Storage](/img/doc/Mastering-Apache-Pulsar/chap09/object-storage.png)
 
 在第4章中提到BookKeeper也被某项项目用作对象存储，两者比较如下：
 
@@ -52,7 +52,7 @@ Pulsar分层存储(Tiered Storage)机制将消息持久化到其他存储服务�
 
 Offloader是卸载数据配置的抽象，如下图所示，Apache Pulsar通过Apache jClouds实现分层存储。
 
-![Management Lifecycle of Pulsar Tiered Storage](/img/doc/Master-Apache-Pulsar/chap09/management-lifecycle-of-Pulsar-tiered-storage.png)
+![Management Lifecycle of Pulsar Tiered Storage](/img/doc/Mastering-Apache-Pulsar/chap09/management-lifecycle-of-Pulsar-tiered-storage.png)
 
 使用Amazon S3和Google Cloud Storage作为对象存储后端的配置过程：
 
@@ -71,13 +71,13 @@ Offloader是卸载数据配置的抽象，如下图所示，Apache Pulsar通过A
 
 将卸载数据加载到topic，由消费者获取(例如构建source连接器读取S3中的ledger)，如下图所示：
 
-![Repopulating Topics](/img/doc/Master-Apache-Pulsar/chap09/repopulating-topics.png)
+![Repopulating Topics](/img/doc/Mastering-Apache-Pulsar/chap09/repopulating-topics.png)
 
 ### 使用Pulsar Client
 
 Manager ledger不但告诉应该去哪个ledger读取信息，还保存该ledger存储位置信息，作为消费者不需要关心ledger在哪，只需要读取topic。因此获取卸载数据的最简单方式就是使用Pulsar Client。
 
-![Pulsar Client Reader](/img/doc/Master-Apache-Pulsar/chap09/pulsar-client-reader.png)
+![Pulsar Client Reader](/img/doc/Mastering-Apache-Pulsar/chap09/pulsar-client-reader.png)
 
 ```java
 import org.apache.pulsar.client.api.MessageId;

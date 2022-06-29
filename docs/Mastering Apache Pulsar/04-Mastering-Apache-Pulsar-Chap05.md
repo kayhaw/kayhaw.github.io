@@ -41,7 +41,7 @@ Consumer consumer = client.newConsumer()
 
 如果另一个消费者试图加入已有消费者的独家订阅，那它将会被拒绝，如下图所示：
 
-![Exclusive Subscription](/img/doc/Master-Apache-Pulsar/chap05/error-on-exclusive-subscription.png)
+![Exclusive Subscription](/img/doc/Mastering-Apache-Pulsar/chap05/error-on-exclusive-subscription.png)
 
 独家订阅的意义：操作简单(易于调试)、**保证消息有序**。
 
@@ -49,7 +49,7 @@ Consumer consumer = client.newConsumer()
 
 共享(Shared)订阅指消费者和订阅之间是多对一关系，如下图所示，多个消费者将会按照轮询的方式接收消息。
 
-![Shared Subscription](/img/doc/Master-Apache-Pulsar/chap05/round-robin-shared-subscription.png)
+![Shared Subscription](/img/doc/Mastering-Apache-Pulsar/chap05/round-robin-shared-subscription.png)
 
 ```java
 Consumer consumer = client.newConsumer()
@@ -69,7 +69,7 @@ Consumer consumer = client.newConsumer()
 
 Key_Shared订阅类类似共享订阅，但粒度更细，消费者只能订阅某个主键的消息(主键是消息的一个字段或者多个字段的组合)，如下图所示：
 
-![Key_Shared Subscription](/img/doc/Master-Apache-Pulsar/chap05/key_shared_subscription.png)
+![Key_Shared Subscription](/img/doc/Mastering-Apache-Pulsar/chap05/key_shared_subscription.png)
 
 共享订阅难以保证消息有序性，因为消息时轮询发送给消费者。而key_shared按照主键划分确保一组消息都由同一个消费者获取，改善了顺序保证性。由于消费者按照主键分类获取消息，因此在定义Key_Shared订阅时，除了给出订阅类型外，还需要给出划分策略。
 
@@ -99,7 +99,7 @@ consumer = client.newConsumer(Schema.STRING)
 
 Failover订阅允许多个消费者连接topic，但是broker只会选择一个消费者(通常是第一个订阅的消费者)作为leader，消息将只通过该消费者传递，如下图所示。
 
-![Failover Subscription](/img/doc/Master-Apache-Pulsar/chap05/failover-subscription.png)
+![Failover Subscription](/img/doc/Mastering-Apache-Pulsar/chap05/failover-subscription.png)
 
 ```java
 Consumer consumer = client.newConsumer()
@@ -120,13 +120,13 @@ ACK响应指由消费者发送给broker的应答，收到该应答即意味着�
 
 默认情况下，topic的每条消息都对应一个ACK，所有订阅模式都支持单个ACK(Individual Ack)。
 
-![Individual Ack](/img/doc/Master-Apache-Pulsar/chap05/individual-ack.png)
+![Individual Ack](/img/doc/Mastering-Apache-Pulsar/chap05/individual-ack.png)
 
 ### 累计ACK
 
 累计ACK是某个偏移位置消息的答应，意味着该消息之前的所有消息都已成功处理(批量应答)，所有订阅模式都支持累计ACK(Cumulative Ack)。
 
-![Cumulative Ack](/img/doc/Master-Apache-Pulsar/chap05/cumulative-ack.png)
+![Cumulative Ack](/img/doc/Mastering-Apache-Pulsar/chap05/cumulative-ack.png)
 
 ## 模式
 
@@ -147,13 +147,13 @@ ACK响应指由消费者发送给broker的应答，收到该应答即意味着�
 
 批处理(Batching)模式对消费者没有什么重大影响，只不过消费者会对整批的消息响应ACK。在Pulsar 2.8版本之前，如果消费者在处理最后几条消息时挂掉，批处理模式下需要重头开始处理。但自Pulsar 2.8起，引入批索引(batch index)准确地指出上一个批处理的结束位置。
 
-![Batching Consumption](/img/doc/Master-Apache-Pulsar/chap05/batching-consumption.png)
+![Batching Consumption](/img/doc/Mastering-Apache-Pulsar/chap05/batching-consumption.png)
 
 ### 块处理
 
 块处理模式下消费者接收带有元数据消息块，将其拼接完整后回复ACK，如下图所示：
 
-![Chunk Consumption](/img/doc/Master-Apache-Pulsar/chap05/chunk-consumption.png)
+![Chunk Consumption](/img/doc/Mastering-Apache-Pulsar/chap05/chunk-consumption.png)
 
 ## 高级设置
 
@@ -161,7 +161,7 @@ ACK响应指由消费者发送给broker的应答，收到该应答即意味着�
 
 延迟消息指延迟发送消息，**只能**在共享订阅下使用。如下图所示，当消费者获取topic中的延迟消息，由DelayedDeliveryTracker配置超时时间后才发送消息给消费者。
 
-![Delayed Messages](/img/doc/Master-Apache-Pulsar/chap05/delayed-messages.png)
+![Delayed Messages](/img/doc/Mastering-Apache-Pulsar/chap05/delayed-messages.png)
 
 ```java
 producer.newMessage().deliverAfter(5L, TimeUnit.Minute).
@@ -249,7 +249,7 @@ while (true) {
 }
 ```
 
-![Replay](/img/doc/Master-Apache-Pulsar/chap05/replay.png)
+![Replay](/img/doc/Mastering-Apache-Pulsar/chap05/replay.png)
 
 - 设置negative ACK：
 
@@ -269,7 +269,7 @@ while (true) {
 }
 ```
 
-![Negative ACK](/img/doc/Master-Apache-Pulsar/chap05/negative-ack.png)
+![Negative ACK](/img/doc/Mastering-Apache-Pulsar/chap05/negative-ack.png)
 
 - 命令行重置游标：
 

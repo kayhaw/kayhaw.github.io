@@ -17,7 +17,7 @@ tags:
 
 主流的消息中间件都支持发布/订阅模式，它来自于Kenneth Birman和Thomas Joseph在1987年发表的论文*Exploiting virtual synchrony in distributed systems*，论文描述了本质上是异步但能够达到同步效果的发布/订阅模式。如下图所示，发布者无需知道谁是订阅者，只管发布消息，订阅者无需直到消息产生机制，只管获取消息。从而将发布者与订阅者解耦。
 
-![Publish and Subscribe Pattern](/img/doc/Master-Apache-Pulsar/producer-consumer.png)
+![Publish and Subscribe Pattern](/img/doc/Mastering-Apache-Pulsar/producer-consumer.png)
 
 当发布者和订阅者增加时，用户交互的感觉如同步操作一样，尽管本质是异步的。
 

@@ -37,13 +37,13 @@ tags:
 
 如下图所示，Pulsar Function是**从topic获取数据**、进行计算、**发布到其他topic**的轻量级进程。本着模块化的设计思想，Pulsar Function可以使用Java、Python和Go多种语言开发，其运行时和Pulsar运行时互相独立。
 
-![Pulsar Function](/img/doc/Master-Apache-Pulsar/pulsar-function.png)
+![Pulsar Function](/img/doc/Mastering-Apache-Pulsar/pulsar-function.png)
 
 ### Pulsar IO
 
 连接器框架Pulsar IO让Pulsar topic成为其他系统的输入或输出，如下图所示，MySQL数据库记录先输出到Pulsar topic，接着由Pulsar topic输出到Elastic Search上的某个index。和Pulsar Function一样也是独立模块，详见第7章。
 
-![Pulsar IO Example](/img/doc/Master-Apache-Pulsar/pulsar-io-example.png)
+![Pulsar IO Example](/img/doc/Mastering-Apache-Pulsar/pulsar-io-example.png)
 
 ### Pulsar SQL
 

@@ -15,7 +15,7 @@ tags:
 
 同步生产者只有在上一条消息响应后才会发送下一条消息，如下图所示：
 
-![Synchronous Producer](/img/doc/Master-Apache-Pulsar/chap06/synchronous-producer.png)
+![Synchronous Producer](/img/doc/Mastering-Apache-Pulsar/chap06/synchronous-producer.png)
 
 同步生产者适用事务系统，但是等待响应花费时间，并且broker没有及时响应会导致阻塞下游。
 
@@ -23,7 +23,7 @@ tags:
 
 异步生产者通过后台任务将消息保存在阻塞队列中，消息发送不会被阻塞，如下图所示：
 
-![Asynchronous Producer](/img/doc/Master-Apache-Pulsar/chap06/asynchronous-producer.png)
+![Asynchronous Producer](/img/doc/Mastering-Apache-Pulsar/chap06/asynchronous-producer.png)
 
 ## 生产者路由
 
@@ -33,7 +33,7 @@ tags:
 
 Round-Robin路由按序轮流将消息发送到对应分区，如下图所示：
 
-![Round-Robin Route](/img/doc/Master-Apache-Pulsar/chap06/round-robin-route.png)
+![Round-Robin Route](/img/doc/Mastering-Apache-Pulsar/chap06/round-robin-route.png)
 
 **当指定key时，broker先哈希然后将消息路由到对应分区；当未指定key时，broker使用批处理设置决定分区：**
 
@@ -58,7 +58,7 @@ producer.newMessage().key("my-key")
 
 将所有消息路由到一个分区，如下图所示：
 
-![Single Partition Route](/img/doc/Master-Apache-Pulsar/chap06/single-partitioned-route.png)
+![Single Partition Route](/img/doc/Mastering-Apache-Pulsar/chap06/single-partitioned-route.png)
 
 **当指定key时，broker先哈希然后将消息路由到对应分区；当未指定key时，消息被发送到同一个分区：**
 
@@ -164,7 +164,7 @@ Body {
 
 到目前为止讨论的都是持久化topic，Pulsar也支持非持久化topic。它适用于高吞吐、实时场景，如下图所示，只有在消费者主动获取消息时，生产者才会发送消息，**不支持replay**。
 
-![Nonpersistent Topic](/img/doc/Master-Apache-Pulsar/chap06/nonpersistent-topic.png)
+![Nonpersistent Topic](/img/doc/Mastering-Apache-Pulsar/chap06/nonpersistent-topic.png)
 
 ```bash
 pulsar-admin topics create non-persistent://public/default/example-np-topic

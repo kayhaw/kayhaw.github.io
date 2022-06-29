@@ -27,7 +27,7 @@ tags:
 
 以一个订单消息流为例，不同时间的消息可以视为订单表中的记录，可以通过SQL统计各项指标：
 
-![Streams as Tables](/img/doc/Master-Apache-Pulsar/chap10/streams-as-tables.png)
+![Streams as Tables](/img/doc/Mastering-Apache-Pulsar/chap10/streams-as-tables.png)
 
 ```sql
 # 统计过去24小时内订单总量
@@ -56,15 +56,15 @@ Apache Pulsar使用Trino，后文都将会Presto称为Trino。
 
 Pulsar SQL核心是一个Trino connector，该connector作为consumer使用存在topic的元数据查询数据，如下图所示Pulsar和Trino的概念互为映射：
 
-![A High-level View of Pulsar SQL](/img/doc/Master-Apache-Pulsar/chap10/a-high-view-pulsar-sql.png)
+![A High-level View of Pulsar SQL](/img/doc/Mastering-Apache-Pulsar/chap10/a-high-view-pulsar-sql.png)
 
 Trino集群架构如下图所示，worker与外部系统交互，coordinator协调管理并存储元数据：
 
-![Presto Architecture](/img/doc/Master-Apache-Pulsar/chap10/presto-architecture.png)
+![Presto Architecture](/img/doc/Mastering-Apache-Pulsar/chap10/presto-architecture.png)
 
 实现Pulsar SQL有2种方式：从topic读取数据、从存放处(BookKeeper、对象存储等)读取数据。由于Pulsar将数据存放在BookKeeper，并且BookKeeper存储是冗余的，因此可以并发读取ledger的不同部分，从而提高SQL查询速度，如下图所示：
 
-![Parallel Retrieving Data](/img/doc/Master-Apache-Pulsar/chap10/parallel-retrieving-data.png)
+![Parallel Retrieving Data](/img/doc/Mastering-Apache-Pulsar/chap10/parallel-retrieving-data.png)
 
 ## Pulsar SQL配置
 
