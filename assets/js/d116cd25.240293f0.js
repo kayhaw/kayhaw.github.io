@@ -1,1 +1,0 @@
-"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[2649],{1042:function(a){a.exports=JSON.parse('{"allTagsPath":"/blog/tags","name":"Flink","count":2,"permalink":"/blog/tags/flink"}')}}]);

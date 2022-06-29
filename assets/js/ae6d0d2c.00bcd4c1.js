@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[1353],{4246:function(a){a.exports=JSON.parse('{"permalink":"/blog/tags/big-data","page":1,"postsPerPage":10,"totalPages":2,"totalCount":11,"nextPage":"/blog/tags/big-data/page/2","blogDescription":"Blog","blogTitle":"Blog"}')}}]);

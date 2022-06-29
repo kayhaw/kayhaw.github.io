@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[8206],{4275:function(a){a.exports=JSON.parse('{"label":"Math algorithm","permalink":"/blog/tags/math-algorithm","allTagsPath":"/blog/tags","count":1}')}}]);

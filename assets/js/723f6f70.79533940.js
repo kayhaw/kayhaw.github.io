@@ -1,1 +1,0 @@
-"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[1857],{4407:function(a){a.exports=JSON.parse('{"allTagsPath":"/blog/tags","name":"LRU","count":1,"permalink":"/blog/tags/lru"}')}}]);

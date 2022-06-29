@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[8],{912:function(a){a.exports=JSON.parse('{"label":"Redis","permalink":"/blog/tags/redis","allTagsPath":"/blog/tags","count":1}')}}]);

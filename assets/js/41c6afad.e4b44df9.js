@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[8508],{283:function(a){a.exports=JSON.parse('{"label":"MySQL Basic","permalink":"/blog/tags/my-sql-basic","allTagsPath":"/blog/tags","count":1}')}}]);

@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[4802],{7984:function(a){a.exports=JSON.parse('{"label":"LFU","permalink":"/blog/tags/lfu","allTagsPath":"/blog/tags","count":1}')}}]);

@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[4123],{7455:function(a){a.exports=JSON.parse('{"label":"Algorithm","permalink":"/blog/tags/algorithm","allTagsPath":"/blog/tags","count":4}')}}]);

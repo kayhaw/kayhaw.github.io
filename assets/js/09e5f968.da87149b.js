@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[7889],{8802:function(a){a.exports=JSON.parse('{"label":"Work Journal","permalink":"/blog/tags/work-journal","allTagsPath":"/blog/tags","count":1}')}}]);

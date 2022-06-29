@@ -1,1 +1,0 @@
-"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[4612],{9218:function(a){a.exports=JSON.parse('{"allTagsPath":"/blog/tags","name":"BigData","count":13,"permalink":"/blog/tags/big-data"}')}}]);

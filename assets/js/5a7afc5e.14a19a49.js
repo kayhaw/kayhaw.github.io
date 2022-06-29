@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkkayhaw_github_io=self.webpackChunkkayhaw_github_io||[]).push([[5864],{6398:function(a){a.exports=JSON.parse('{"label":"OpenJDK","permalink":"/blog/tags/open-jdk","allTagsPath":"/blog/tags","count":1}')}}]);
